@@ -60,8 +60,8 @@ def train_model():
     print()
     print("Training configuration:")
     print("  - Problem type: regression")
-    print("  - Time limit: 10 minutes (600 seconds)")
-    print("  - Preset: medium_quality (balance speed/accuracy)")
+    print("  - Time limit: 60 minutes (3600 seconds)")
+    print("  - Preset: best_quality")
     print("  - Eval metric: root_mean_squared_error")
     print()
 
@@ -74,8 +74,8 @@ def train_model():
         eval_metric='root_mean_squared_error'
     ).fit(
         train_data=train_dataset,
-        time_limit=600,  # 10 minutes training time
-        presets='medium_quality',  # Use medium quality for speed
+        time_limit=3600,  # 10 minutes training time
+        presets='best_quality',  # Use medium quality for speed
         # Alternative presets:
         # - 'best_quality': Slower but more accurate
         # - 'high_quality': Good balance
@@ -104,7 +104,7 @@ def train_model():
     print()
 
     # Get best model info
-    best_model = predictor.get_model_best()
+    best_model = predictor.model_best
     print(f"Best model: {best_model}")
     print()
 
