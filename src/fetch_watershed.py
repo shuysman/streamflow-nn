@@ -49,6 +49,12 @@ def fetch_lamar_watershed(gage_id, output_file='lamar_watershed.geojson'):
         print("pip install pynhd geopandas shapely matplotlib")
 
 if __name__ == "__main__":
-    # Lamar River near Tower Falls
-    GAGE_ID = "06191500" 
+    # Lamar River nr Tower Ranger Station YNP 
+    GAGE_ID = "06188000"
+    
+    # Soda Butte Cr at Park Bndry at Silver Gate
+    #GAGE_ID = "06187915"
+
+    # Corwin
+    #GAGE_ID = "06191500" 
     fetch_lamar_watershed(GAGE_ID)
