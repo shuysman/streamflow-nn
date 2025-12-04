@@ -23,13 +23,6 @@ from pathlib import Path
 # SNOTEL station configuration
 # All stations within Lamar River watershed
 STATIONS = {
-    'canyon': {
-        'id': '384',
-        'name': 'Canyon',
-        'state': 'WY',
-        'elevation_ft': 7870,
-        'elevation_m': 2399
-    },
     'northeast_entrance': {
         'id': '670',
         'name': 'Northeast Entrance',
@@ -43,20 +36,6 @@ STATIONS = {
         'state': 'WY',
         'elevation_ft': 9420,
         'elevation_m': 2871
-    },
-    'sylvan_lake': {
-        'id': '806',
-        'name': 'Sylvan Lake',
-        'state': 'WY',
-        'elevation_ft': 8440,
-        'elevation_m': 2573
-    },
-    'thumb_divide': {
-        'id': '816',
-        'name': 'Thumb Divide',
-        'state': 'WY',
-        'elevation_ft': 7970,
-        'elevation_m': 2429
     }
 }
 
@@ -68,212 +47,77 @@ END_DATE = '2025-11-26'
 OUTPUT_DIR = Path(__file__).parent.parent / 'data' / 'snotel'
 
 
-def get_snotel_data_nrcs(station_id, start_date, end_date, element='WTEQ'):
+def get_snotel_data(station_id, start_date, end_date, state):
     """
-    Download SNOTEL data from NRCS AWDB Web Service.
+    Download SNOTEL Snow Water Equivalent data from NRCS CSV interface.
 
     Args:
         station_id: SNOTEL station ID (e.g., '683')
         start_date: Start date string 'YYYY-MM-DD'
         end_date: End date string 'YYYY-MM-DD'
-        element: Data element code
-            - 'WTEQ': Snow Water Equivalent (inches)
-            - 'SNWD': Snow Depth (inches)
-            - 'PREC': Precipitation Accumulation (inches)
-            - 'TOBS': Air Temperature Observed (°F)
+        state: Two letter state abbreviation
 
     Returns:
         DataFrame with columns: ['date', 'value']
     """
-    # NRCS AWDB SOAP API endpoint
-    base_url = "https://wcc.sc.egov.usda.gov/awdbWebService/services"
-
-    # Try the REST API first (easier)
-    # Format: https://wcc.sc.egov.usda.gov/reportGenerator/view_csv/customSingleStationReport/daily/683:WY:SNTL|id=%22%22|name/POR_BEGIN,POR_END/WTEQ::value
-
-    rest_url = (
-        f"https://wcc.sc.egov.usda.gov/reportGenerator/view_csv/"
-        f"customSingleStationReport/daily/{station_id}:WY:SNTL%7Cid=%22%22%7Cname/"
-        f"{start_date},{end_date}/{element}::value"
-    )
-
-    print(f"  Fetching from NRCS AWDB REST API...")
-    print(f"  URL: {rest_url}")
-
-    try:
-        response = requests.get(rest_url, timeout=60)
-        response.raise_for_status()
-
-        # Parse CSV response
-        # Skip header rows (first row is metadata)
-        lines = response.text.strip().split('\n')
-
-        # Find the header row (contains "Date")
-        header_idx = None
-        for i, line in enumerate(lines):
-            if 'Date' in line:
-                header_idx = i
-                break
-
-        if header_idx is None:
-            raise ValueError("Could not find header row in response")
-
-        # Parse data starting from header
-        data_lines = '\n'.join(lines[header_idx:])
-        df = pd.read_csv(pd.io.common.StringIO(data_lines))
-
-        # Clean up column names
-        df.columns = df.columns.str.strip()
-
-        # Rename columns
-        date_col = [c for c in df.columns if 'Date' in c][0]
-        value_col = [c for c in df.columns if element in c or 'Snow Water Equivalent' in c][0]
-
-        df = df.rename(columns={date_col: 'date', value_col: 'value'})
-
-        # Convert date
-        df['date'] = pd.to_datetime(df['date'])
-
-        # Convert value to numeric (handle missing as NaN)
-        df['value'] = pd.to_numeric(df['value'], errors='coerce')
-
-        # Select only date and value
-        df = df[['date', 'value']].copy()
-
-        print(f"  ✓ Downloaded {len(df)} records")
-
-        return df
-
-    except Exception as e:
-        print(f"  ✗ REST API failed: {e}")
-        print(f"  Trying alternative method...")
-        return get_snotel_data_ulmo(station_id, start_date, end_date, element)
-
-
-def get_snotel_data_ulmo(station_id, start_date, end_date, element='WTEQ'):
-    """
-    Fallback: Try using ulmo library if available.
-
-    ulmo is a Python library for accessing public hydrology data.
-    Install with: pip install ulmo
-    """
-    try:
-        import ulmo
-
-        print(f"  Using ulmo library...")
-
-        # SNOTEL station triplet: stationId:state:network
-        station_triplet = f"{station_id}:WY:SNTL"
-
-        # Get data
-        data = ulmo.cuahsi.wof.get_values(
-            wsdl_url='https://hydroportal.cuahsi.org/Snotel/cuahsi_1_1.asmx?WSDL',
-            location_code=station_triplet,
-            variable_code=f'SNOTEL:{element}',
-            start_date=start_date,
-            end_date=end_date
-        )
-
-        # Parse response
-        values = data['values']
-        df = pd.DataFrame(values)
-
-        df['date'] = pd.to_datetime(df['datetime'])
-        df['value'] = pd.to_numeric(df['value'], errors='coerce')
-
-        df = df[['date', 'value']].copy()
-        df = df.sort_values('date').reset_index(drop=True)
-
-        print(f"  ✓ Downloaded {len(df)} records via ulmo")
-
-        return df
-
-    except ImportError:
-        print(f"  ✗ ulmo library not available (pip install ulmo)")
-        return None
-    except Exception as e:
-        print(f"  ✗ ulmo method failed: {e}")
-        return None
-
-
-def get_snotel_data_csv_direct(station_id, start_date, end_date):
-    """
-    Fallback: Direct CSV download from NRCS.
-
-    This uses the simpler CSV download interface.
-    """
-    # Convert dates
-    start_dt = pd.to_datetime(start_date)
-    end_dt = pd.to_datetime(end_date)
-
-    # NRCS CSV download URL
+    # NRCS CSV download URL - use state from parameter
     url = (
         f"https://wcc.sc.egov.usda.gov/reportGenerator/view_csv/"
         f"customSingleStationReport/daily/"
-        f"{station_id}:WY:SNTL|id=%22%22|name/"
-        f"{start_dt.strftime('%Y-%m-%d')},{end_dt.strftime('%Y-%m-%d')}/"
-        f"WTEQ::value,SNWD::value,PREC::value,TOBS::value"
+        f"{station_id}:{state}:SNTL%7Cid=%22%22%7Cname/"
+        f"{start_date},{end_date}/"
+        f"WTEQ::value"
     )
 
-    print(f"  Trying direct CSV download...")
+    print(f"  Downloading from: {url}")
 
     try:
         response = requests.get(url, timeout=60)
         response.raise_for_status()
 
-        # Save raw response for debugging
-        # print(response.text[:500])
-
-        # Parse CSV
+        # Parse CSV - skip comment lines that start with #
         lines = response.text.strip().split('\n')
 
-        # Find header
+        # Find the header row (contains "Date")
         header_idx = None
         for i, line in enumerate(lines):
-            if 'Date' in line and 'Snow Water Equivalent' in line:
+            if not line.startswith('#') and 'Date' in line:
                 header_idx = i
                 break
 
         if header_idx is None:
-            # Try to find just 'Date'
-            for i, line in enumerate(lines):
-                if 'Date' in line:
-                    header_idx = i
-                    break
+            raise ValueError("Could not find header row in CSV")
 
-        if header_idx is None:
-            raise ValueError("Could not find header in CSV")
-
-        # Parse from header onward
+        # Parse data starting from header
         data_text = '\n'.join(lines[header_idx:])
         df = pd.read_csv(pd.io.common.StringIO(data_text))
 
         # Clean column names
         df.columns = df.columns.str.strip()
 
-        # Find SWE column
-        swe_col = None
+        # Find date and value columns
+        date_col = None
+        value_col = None
+
         for col in df.columns:
+            if 'Date' in col:
+                date_col = col
             if 'Snow Water Equivalent' in col or 'WTEQ' in col:
-                swe_col = col
-                break
+                value_col = col
 
-        if swe_col is None:
+        if date_col is None or value_col is None:
             print(f"  Available columns: {df.columns.tolist()}")
-            raise ValueError("Could not find SWE column")
+            raise ValueError(f"Could not find required columns (date: {date_col}, value: {value_col})")
 
-        # Find date column
-        date_col = [c for c in df.columns if 'Date' in c][0]
-
-        # Rename and select
-        df = df.rename(columns={date_col: 'date', swe_col: 'value'})
+        # Rename and select columns
+        df = df.rename(columns={date_col: 'date', value_col: 'value'})
         df = df[['date', 'value']].copy()
 
         # Convert types
         df['date'] = pd.to_datetime(df['date'])
         df['value'] = pd.to_numeric(df['value'], errors='coerce')
 
-        # Sort
+        # Sort and reset index
         df = df.sort_values('date').reset_index(drop=True)
 
         print(f"  ✓ Downloaded {len(df)} records")
@@ -281,7 +125,9 @@ def get_snotel_data_csv_direct(station_id, start_date, end_date):
         return df
 
     except Exception as e:
-        print(f"  ✗ Direct CSV download failed: {e}")
+        print(f"  ✗ Download failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -290,16 +136,13 @@ def download_station_data(station_key, station_info, start_date, end_date):
 
     print(f"\n{'='*80}")
     print(f"Station: {station_info['name']} ({station_info['id']})")
+    print(f"State: {station_info['state']}")
     print(f"  Elevation: {station_info['elevation_ft']} ft ({station_info['elevation_m']} m)")
     print(f"  Date range: {start_date} to {end_date}")
     print(f"{'='*80}")
 
-    # Try primary method
-    df = get_snotel_data_nrcs(station_info['id'], start_date, end_date)
-
-    # If that fails, try CSV direct
-    if df is None or len(df) == 0:
-        df = get_snotel_data_csv_direct(station_info['id'], start_date, end_date)
+    # Download using CSV method
+    df = get_snotel_data(station_info['id'], start_date, end_date, station_info['state'])
 
     if df is None or len(df) == 0:
         print(f"  ✗ Failed to download data for {station_info['name']}")
@@ -380,7 +223,7 @@ def main():
         # Strategy: Forward fill for up to 7 days (common for SNOTEL data gaps)
         for col in df_combined.columns:
             if col != 'date':
-                df_combined[col] = df_combined[col].fillna(method='ffill', limit=7)
+                df_combined[col] = df_combined[col].ffill(limit=7)
 
         # Save combined file
         combined_file = OUTPUT_DIR / 'lamar_snotel_combined.csv'
