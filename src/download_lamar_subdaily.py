@@ -13,7 +13,8 @@ import numpy as np
 from datetime import datetime, timedelta
 import sys
 
-SITE_CODE = "06187915"  # Lamar River near Tower Ranger Station, YNP
+SITE_CODE = "06188000"  # Lamar River nr Tower Ranger Station YNP 
+#SITE_CODE = "06187915"  # Soda Butte Cr at Park Bndry at Silver Gate
 PARAMETER_CODE = "00060"
 
 print("=" * 80)
@@ -50,13 +51,13 @@ except Exception as e:
     print("\nSubdaily data likely not available for this site.")
     sys.exit(1)
 
-# Download last 10 years (2015-2025) like we did for Hoh
+# Download from 1990 onwards (or as far back as available)
 print("\n" + "=" * 80)
-print("DOWNLOADING LAST 10 YEARS (2015-2025)")
+print("DOWNLOADING FROM 1990 (OR AS FAR BACK AS AVAILABLE)")
 print("=" * 80)
 
 end_date = datetime.now()
-start_date = datetime(2015, 1, 1)
+start_date = datetime(1990, 1, 1)
 total_years = end_date.year - start_date.year + 1
 
 print(f"\nDate range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")

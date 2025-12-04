@@ -12,9 +12,9 @@ import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-# USGS Site for Lamar River near Tower Ranger Station, Yellowstone NP
-SITE_CODE = "06187915"  # Lamar River near Tower Ranger Station, YNP
-PARAMETER_CODE = "00060"  # Discharge (streamflow) in cubic feet per second
+SITE_CODE = "06188000"  # Lamar River nr Tower Ranger Station YNP 
+#SITE_CODE = "06187915"  # Soda Butte Cr at Park Bndry at Silver Gate
+PARAMETER_CODE = "00060"
 
 print("=" * 80)
 print("USGS Stream Gauge Data Downloader")
