@@ -368,7 +368,7 @@ def main():
     """Main execution function."""
     print("="*80)
     print("GridMET Climate Data Processing with Elevation Bands")
-    print("Lamar River Watershed (USGS 06191500)")
+    print("Lamar River Watershed (USGS 06188000)")
     print("="*80)
 
     # Configuration
