@@ -215,9 +215,54 @@ def get_elevation_data():
         print("Will use synthetic elevation based on latitude (approximation)...")
         return None
 
+def create_watershed_mask(ds_climate, watershed):
+    """
+    Create a spatial mask identifying which grid cells are within the watershed polygon.
+
+    Returns:
+        xr.DataArray: Boolean mask where True = cell is inside watershed
+    """
+    from shapely.geometry import Point
+
+    print("\nCreating watershed polygon mask...")
+
+    # Get the watershed polygon
+    watershed_geom = watershed.geometry.iloc[0]
+
+    # Get lat/lon coordinates
+    lats = ds_climate.lat.values
+    lons = ds_climate.lon.values
+
+    # Create 2D arrays for all grid cell centers
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+
+    # Flatten for easier iteration
+    points = [Point(lon, lat) for lon, lat in zip(lon_grid.ravel(), lat_grid.ravel())]
+
+    # Check which points are within the watershed
+    print(f"  Checking {len(points)} grid cell centers against watershed polygon...")
+    within_mask = np.array([watershed_geom.contains(point) for point in points])
+
+    # Reshape back to 2D grid
+    within_mask_2d = within_mask.reshape(lon_grid.shape)
+
+    # Create DataArray
+    mask = xr.DataArray(
+        within_mask_2d,
+        coords={'lat': lats, 'lon': lons},
+        dims=['lat', 'lon']
+    )
+
+    n_cells_in_watershed = int(mask.sum())
+    n_cells_total = mask.size
+    print(f"  ✓ {n_cells_in_watershed} cells within watershed (out of {n_cells_total} in bounding box)")
+
+    return mask
+
 def classify_elevation_bands(ds_climate, ds_elev, watershed):
     """
     Classify each grid cell into elevation bands and create masks.
+    Only includes cells that are within the watershed polygon.
 
     Returns:
         dict: Masks for each elevation band
@@ -230,6 +275,9 @@ def classify_elevation_bands(ds_climate, ds_elev, watershed):
         print(f"Available dimensions: {list(ds_climate.dims.keys())}")
         raise ValueError("Invalid climate data structure")
 
+    # Create watershed mask first
+    watershed_mask = create_watershed_mask(ds_climate, watershed)
+
     # Get elevation array
     if ds_elev is not None and 'elevation' in ds_elev:
         elevation = ds_elev.elevation
@@ -237,7 +285,23 @@ def classify_elevation_bands(ds_climate, ds_elev, watershed):
         if elevation.ndim == 3 and elevation.shape[0] == 1:
             elevation = elevation.isel({elevation.dims[0]: 0})
         print(f"  Elevation array shape: {elevation.shape}")
+        print(f"  Elevation dims: {elevation.dims}")
+        print(f"  Elevation coords: lat {len(elevation.lat)}, lon {len(elevation.lon)}")
         print(f"  Elevation range: {float(elevation.min()):.0f}m - {float(elevation.max()):.0f}m")
+        print(f"  Watershed mask shape: {watershed_mask.shape}")
+        print(f"  Watershed mask dims: {watershed_mask.dims}")
+        print(f"  Watershed mask coords: lat {len(watershed_mask.lat)}, lon {len(watershed_mask.lon)}")
+
+        # Check coordinate alignment
+        print(f"  Elevation lat: {elevation.lat.values[:3]}... to {elevation.lat.values[-3:]}")
+        print(f"  Watershed lat: {watershed_mask.lat.values[:3]}... to {watershed_mask.lat.values[-3:]}")
+
+        # Ensure elevation is aligned to climate data coordinates
+        if not np.array_equal(elevation.lat.values, ds_climate.lat.values) or \
+           not np.array_equal(elevation.lon.values, ds_climate.lon.values):
+            print(f"  WARNING: Elevation coordinates don't match climate data - realigning...")
+            elevation = elevation.reindex(lat=ds_climate.lat, lon=ds_climate.lon, method='nearest')
+            print(f"  ✓ Realigned elevation to climate grid")
     else:
         # Create approximate elevation based on latitude
         print("  Using latitude-based approximation for elevation")
@@ -267,22 +331,26 @@ def classify_elevation_bands(ds_climate, ds_elev, watershed):
             dims=['lat', 'lon']
         )
 
-    # Create masks for each band based on elevation
-    # Note: Since we already subsetted spatially to the watershed bounds,
-    # all grid cells can be considered for elevation bands
+    # Create masks for each band based on elevation AND watershed boundary
+    # Each mask must satisfy: (1) elevation in range AND (2) within watershed polygon
     masks = {
         'valley': (elevation >= BAND_THRESHOLDS['valley'][0]) &
-                  (elevation < BAND_THRESHOLDS['valley'][1]),
+                  (elevation < BAND_THRESHOLDS['valley'][1]) &
+                  watershed_mask,
         'mid': (elevation >= BAND_THRESHOLDS['mid'][0]) &
-               (elevation < BAND_THRESHOLDS['mid'][1]),
+               (elevation < BAND_THRESHOLDS['mid'][1]) &
+               watershed_mask,
         'alpine': (elevation >= BAND_THRESHOLDS['alpine'][0]) &
-                  (elevation < BAND_THRESHOLDS['alpine'][1])
+                  (elevation < BAND_THRESHOLDS['alpine'][1]) &
+                  watershed_mask
     }
 
     # Report statistics
-    print("\n  Elevation band statistics:")
+    print("\n  Elevation band statistics (within watershed only):")
+    total_cells = 0
     for band, mask in masks.items():
         n_cells = int(mask.sum())
+        total_cells += n_cells
         if n_cells > 0:
             elev_values = elevation.where(mask).values.ravel()
             elev_values = elev_values[~np.isnan(elev_values)]
@@ -290,6 +358,8 @@ def classify_elevation_bands(ds_climate, ds_elev, watershed):
                   f"elevation {elev_values.min():.0f}-{elev_values.max():.0f}m")
         else:
             print(f"    {band:8s}: WARNING - 0 cells!")
+
+    print(f"    TOTAL   : {total_cells:3d} cells in watershed")
 
     return masks, elevation
 
