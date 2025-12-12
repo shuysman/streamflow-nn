@@ -9,8 +9,9 @@ and runs water balance calculations for each band with band-specific parameters.
 import sys
 import argparse
 import datetime
+import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
@@ -113,14 +114,66 @@ def prepare_data_for_wb(band_df: pd.DataFrame) -> Dict:
     }
 
 
-def get_default_band_configs(station_name: str = 'Lamar') -> Dict[str, ElevationBandConfig]:
+def load_calibrated_params(calibration_dir: str = 'output/calibration') -> Dict[str, Dict]:
     """
-    Get default configurations for Lamar River elevation bands
+    Load calibrated parameters from JSON files
+
+    Returns:
+        Dictionary with band names as keys, containing calibrated parameters
+    """
+    calibration_path = Path(calibration_dir)
+    calibrated = {}
+
+    for band in ['valley', 'mid', 'alpine']:
+        json_file = calibration_path / f'calibrated_params_{band}.json'
+        if json_file.exists():
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+                calibrated[band] = data['parameters']
+                print(f"  Loaded calibrated params for {band}: "
+                      f"melt_factor={data['parameters']['melt_factor']:.3f}, "
+                      f"melt_thresh={data['parameters']['melt_thresh_temp']:.2f}°C")
+
+    return calibrated
+
+
+def get_default_band_configs(
+    station_name: str = 'Lamar',
+    use_calibrated: bool = False,
+    calibration_dir: str = 'output/calibration'
+) -> Dict[str, ElevationBandConfig]:
+    """
+    Get configurations for Lamar River elevation bands
+
+    Args:
+        station_name: Name of the station/watershed
+        use_calibrated: If True, load calibrated parameters from JSON files
+        calibration_dir: Directory containing calibrated parameter JSON files
 
     You can customize these parameters based on your watershed characteristics
     """
     # Lamar River watershed approximate coordinates: 44.9°N
     latitude = 44.9
+
+    # Load calibrated parameters if requested
+    calibrated_params = {}
+    if use_calibrated:
+        print(f"\nLoading calibrated parameters from {calibration_dir}...")
+        calibrated_params = load_calibrated_params(calibration_dir)
+
+    # Default parameters
+    default_params = {
+        'valley': {'melt_factor': 0.35, 'melt_thresh_temperature': -6.0, 'precip_fraction': 0.167},
+        'mid': {'melt_factor': 0.35, 'melt_thresh_temperature': -6.0, 'precip_fraction': 0.167},
+        'alpine': {'melt_factor': 0.35, 'melt_thresh_temperature': -6.0, 'precip_fraction': 0.167},
+    }
+
+    # Override with calibrated parameters where available
+    for band in ['valley', 'mid', 'alpine']:
+        if band in calibrated_params:
+            default_params[band]['melt_factor'] = calibrated_params[band]['melt_factor']
+            default_params[band]['melt_thresh_temperature'] = calibrated_params[band]['melt_thresh_temp']
+            default_params[band]['precip_fraction'] = calibrated_params[band]['precip_fraction']
 
     configs = {
         'valley': ElevationBandConfig(
@@ -128,9 +181,9 @@ def get_default_band_configs(station_name: str = 'Lamar') -> Dict[str, Elevation
             elevation=2000,  # meters, approximate valley floor
             latitude=latitude,
             max_soil_water=150.0,  # mm, deeper soils in valley
-            melt_factor=0.35,  # Higher melt rate at lower elevation
-            melt_thresh_temperature=-6.0,  # °C, warmer threshold
-            precip_fraction=0.167,
+            melt_factor=default_params['valley']['melt_factor'],
+            melt_thresh_temperature=default_params['valley']['melt_thresh_temperature'],
+            precip_fraction=default_params['valley']['precip_fraction'],
             pet_type='oudin',
             use_heatload=False
         ),
@@ -139,9 +192,9 @@ def get_default_band_configs(station_name: str = 'Lamar') -> Dict[str, Elevation
             elevation=2500,  # meters, mid-elevation
             latitude=latitude,
             max_soil_water=150.0,  # mm, moderate soil depth
-            melt_factor=0.35,  # Moderate melt rate
-            melt_thresh_temperature=-6.0,  # °C, standard threshold
-            precip_fraction=0.167,
+            melt_factor=default_params['mid']['melt_factor'],
+            melt_thresh_temperature=default_params['mid']['melt_thresh_temperature'],
+            precip_fraction=default_params['mid']['precip_fraction'],
             pet_type='oudin',
             use_heatload=False
         ),
@@ -150,9 +203,9 @@ def get_default_band_configs(station_name: str = 'Lamar') -> Dict[str, Elevation
             elevation=3000,  # meters, alpine zone
             latitude=latitude,
             max_soil_water=150.0,  # mm, shallow alpine soils
-            melt_factor=0.35,  # Lower melt rate at high elevation
-            melt_thresh_temperature=-6.0,  # °C, colder threshold
-            precip_fraction=0.167,
+            melt_factor=default_params['alpine']['melt_factor'],
+            melt_thresh_temperature=default_params['alpine']['melt_thresh_temperature'],
+            precip_fraction=default_params['alpine']['precip_fraction'],
             pet_type='oudin',
             use_heatload=False
         )
@@ -367,10 +420,23 @@ def main():
         default=0.35,
         help='Alpine melt factor (mm/°C/day)'
     )
+    parser.add_argument(
+        '--use-calibrated',
+        action='store_true',
+        help='Use SNOTEL-calibrated parameters from output/calibration/*.json'
+    )
+    parser.add_argument(
+        '--calibration-dir',
+        default='output/calibration',
+        help='Directory containing calibrated parameter JSON files'
+    )
 
     args = parser.parse_args()
-    
-    band_configs = get_default_band_configs()
+
+    band_configs = get_default_band_configs(
+        use_calibrated=args.use_calibrated,
+        calibration_dir=args.calibration_dir
+    )
 
     # Run water balance
     results = run_elevation_bands_wb(
