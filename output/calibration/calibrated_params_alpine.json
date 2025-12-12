@@ -1,0 +1,39 @@
+{
+  "band": "alpine",
+  "station": "swe_parker_peak",
+  "calibration_date": "2025-12-12T13:07:33.083028",
+  "parameters": {
+    "melt_factor": 1.499999852990999,
+    "melt_thresh_temp": -1.5916666759814018,
+    "precip_fraction": 0.05000103771408925
+  },
+  "default_parameters": {
+    "melt_factor": 0.35,
+    "melt_thresh_temp": -6.0,
+    "precip_fraction": 0.167
+  },
+  "metrics": {
+    "default": {
+      "nse": 0.6697422996017565,
+      "rmse": 143.84305570457482,
+      "bias": -62.64218759041625,
+      "r2": 0.7659759663964291,
+      "peak_error_mm": -370.08304472222403,
+      "peak_error_pct": -33.80556522299578,
+      "peak_timing_error_days": -2196.0
+    },
+    "calibrated": {
+      "nse": 0.9146411181203496,
+      "rmse": 73.12851979069224,
+      "bias": -13.348065869869124,
+      "r2": 0.9187109227068705,
+      "peak_error_mm": -69.39377366981489,
+      "peak_error_pct": -6.338836040504129,
+      "peak_timing_error_days": -2167.0
+    }
+  },
+  "improvement": {
+    "nse": 0.2448988185185932,
+    "rmse": 70.71453591388259
+  }
+}
