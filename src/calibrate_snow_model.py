@@ -3,7 +3,13 @@
 SNOTEL-Based Calibration of Water Balance Snow Model
 
 This script calibrates the degree-day snow model parameters using observed
-SWE from SNOTEL stations.
+SWE from SNOTEL stations with k-fold cross-validation by water year.
+
+Key Features:
+- K-fold cross-validation by water year (Oct 1 - Sep 30) to detect overfitting
+- Spin-up period handling (first 365 days excluded from metrics)
+- Parameter uncertainty estimation from cross-validation folds
+- Overfitting detection (warns if cal-val gap > 0.1 NSE)
 
 SNOTEL Station → Elevation Band Mapping:
 - Parker Peak (683): 9420 ft (2871m) → Alpine band (3000m)
@@ -12,24 +18,29 @@ SNOTEL Station → Elevation Band Mapping:
 Calibrated Parameters:
 1. melt_factor: Degree-day factor (mm/°C/day) - controls melt rate
 2. melt_thresh_temp: Temperature threshold for melt onset (°C)
-3. precip_fraction: Controls rain/snow partitioning
 
 Usage:
-    python src/calibrate_snow_model.py
-    python src/calibrate_snow_model.py --band alpine --station parker_peak
-    python src/calibrate_snow_model.py --optimize
+    python src/calibrate_snow_model.py                    # Full calibration with 5-fold CV
+    python src/calibrate_snow_model.py --n-folds 3        # Use 3 folds
+    python src/calibrate_snow_model.py --no-cv            # Skip cross-validation
+    python src/calibrate_snow_model.py --band alpine      # Single band
+    python src/calibrate_snow_model.py --no-optimize      # Just compare default params
 """
 
 import sys
+import json
 import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 from scipy.optimize import minimize, differential_evolution
 from dataclasses import dataclass
+
+# Water year starts Oct 1 (e.g., WY2020 = Oct 1, 2019 - Sep 30, 2020)
+SPINUP_DAYS = 365  # Discard first year for spin-up
 
 # Add src to path if needed
 sys.path.insert(0, str(Path(__file__).parent))
@@ -138,8 +149,59 @@ def load_climate_data(climate_file: str) -> Dict[str, pd.DataFrame]:
     return bands
 
 
-def calculate_metrics(observed: np.ndarray, simulated: np.ndarray) -> Dict[str, float]:
-    """Calculate performance metrics for SWE comparison"""
+def get_water_year(date: pd.Timestamp) -> int:
+    """
+    Get water year for a date.
+    Water year N runs from Oct 1 of year N-1 to Sep 30 of year N.
+    """
+    if date.month >= 10:
+        return date.year + 1
+    return date.year
+
+
+def assign_water_years(dates: pd.Series) -> pd.Series:
+    """Assign water year to each date in a series"""
+    return dates.apply(get_water_year)
+
+
+def split_by_water_year(df: pd.DataFrame,
+                        train_years: List[int],
+                        test_years: List[int]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Split dataframe by water years for cross-validation.
+
+    Args:
+        df: DataFrame with 'date' and 'water_year' columns
+        train_years: List of water years for training
+        test_years: List of water years for testing
+
+    Returns:
+        Tuple of (train_df, test_df)
+    """
+    train_df = df[df['water_year'].isin(train_years)].copy()
+    test_df = df[df['water_year'].isin(test_years)].copy()
+    return train_df, test_df
+
+
+def calculate_metrics(observed: np.ndarray, simulated: np.ndarray,
+                     skip_spinup: bool = True) -> Dict[str, float]:
+    """
+    Calculate performance metrics for SWE comparison.
+
+    Args:
+        observed: Observed SWE array
+        simulated: Simulated SWE array
+        skip_spinup: If True, discard first SPINUP_DAYS from metrics calculation
+                    to avoid artifacts from initializing SWE=0
+
+    Returns:
+        Dictionary of performance metrics
+    """
+    # Skip spin-up period to avoid initialization artifacts
+    if skip_spinup and len(observed) > SPINUP_DAYS:
+        observed = observed[SPINUP_DAYS:]
+        simulated = simulated[SPINUP_DAYS:]
+
     # Remove NaN values
     mask = ~(np.isnan(observed) | np.isnan(simulated))
     obs = observed[mask]
@@ -256,6 +318,164 @@ def calibrate_parameters(tmean: np.ndarray,
         'iterations': getattr(result, 'nit', None),
         'message': getattr(result, 'message', '')
     }
+
+
+def cross_validate_calibration(merged_df: pd.DataFrame,
+                               station_column: str,
+                               n_folds: int = 5,
+                               method: str = 'differential_evolution') -> Dict:
+    """
+    Perform k-fold cross-validation by water year.
+
+    This calibrates on (n_folds - 1) groups of water years and validates on
+    the held-out group. Reports both calibration and validation metrics.
+
+    Args:
+        merged_df: DataFrame with date, temp, precip, SWE columns and water_year
+        station_column: Column name for observed SWE
+        n_folds: Number of cross-validation folds
+        method: Optimization method
+
+    Returns:
+        Dictionary with cross-validation results
+    """
+    # Assign water years if not present
+    if 'water_year' not in merged_df.columns:
+        merged_df = merged_df.copy()
+        merged_df['water_year'] = assign_water_years(merged_df['date'])
+
+    water_years = sorted(merged_df['water_year'].unique())
+    n_years = len(water_years)
+
+    if n_years < n_folds:
+        print(f"  Warning: Only {n_years} water years available, reducing folds to {n_years}")
+        n_folds = n_years
+
+    # Create fold assignments (consecutive groups of years)
+    years_per_fold = n_years // n_folds
+    fold_assignments = {}
+    for i, wy in enumerate(water_years):
+        fold_idx = min(i // years_per_fold, n_folds - 1)
+        fold_assignments[wy] = fold_idx
+
+    merged_df['fold'] = merged_df['water_year'].map(fold_assignments)
+
+    fold_results = []
+    all_params = []
+
+    print(f"\n  Running {n_folds}-fold cross-validation by water year...")
+    print(f"  Total water years: {n_years} ({water_years[0]}-{water_years[-1]})")
+
+    for fold in range(n_folds):
+        # Split into train (all other folds) and test (this fold)
+        train_mask = merged_df['fold'] != fold
+        test_mask = merged_df['fold'] == fold
+
+        train_df = merged_df[train_mask].copy()
+        test_df = merged_df[test_mask].copy()
+
+        train_years = sorted(train_df['water_year'].unique())
+        test_years = sorted(test_df['water_year'].unique())
+
+        print(f"\n  Fold {fold + 1}/{n_folds}:")
+        print(f"    Train: WY{train_years[0]}-{train_years[-1]} ({len(train_df):,} days)")
+        print(f"    Test:  WY{test_years[0]}-{test_years[-1]} ({len(test_df):,} days)")
+
+        # Extract training arrays
+        tmean_train = train_df['temp'].values
+        precip_train = train_df['precip'].values
+        obs_train = train_df[station_column].values
+
+        # Calibrate on training data
+        calibrated_params, opt_result = calibrate_parameters(
+            tmean_train, precip_train, obs_train, method=method
+        )
+
+        print(f"    Calibration NSE: {opt_result['nse']:.4f}")
+        print(f"    Parameters: melt_factor={calibrated_params.melt_factor:.3f}, "
+              f"melt_thresh={calibrated_params.melt_thresh_temp:.2f}")
+
+        # Validate on test data (simulate from beginning of test period)
+        tmean_test = test_df['temp'].values
+        precip_test = test_df['precip'].values
+        obs_test = test_df[station_column].values
+
+        model = SnowModel(calibrated_params)
+        sim_test = model.simulate(tmean_test, precip_test)
+
+        # Calculate validation metrics (skip_spinup=True handles test period start)
+        val_metrics = calculate_metrics(obs_test, sim_test, skip_spinup=True)
+        print(f"    Validation NSE:  {val_metrics['nse']:.4f}")
+
+        fold_results.append({
+            'fold': fold + 1,
+            'train_years': train_years,
+            'test_years': test_years,
+            'calibration_nse': opt_result['nse'],
+            'validation_nse': val_metrics['nse'],
+            'validation_rmse': val_metrics['rmse'],
+            'validation_bias': val_metrics['bias'],
+            'params': calibrated_params
+        })
+        all_params.append(calibrated_params)
+
+    # Aggregate results
+    cal_nse_values = [r['calibration_nse'] for r in fold_results]
+    val_nse_values = [r['validation_nse'] for r in fold_results]
+    val_rmse_values = [r['validation_rmse'] for r in fold_results]
+
+    # Average parameters across folds
+    avg_melt_factor = np.mean([p.melt_factor for p in all_params])
+    avg_melt_thresh = np.mean([p.melt_thresh_temp for p in all_params])
+    std_melt_factor = np.std([p.melt_factor for p in all_params])
+    std_melt_thresh = np.std([p.melt_thresh_temp for p in all_params])
+
+    avg_params = SnowModelParams(
+        melt_factor=avg_melt_factor,
+        melt_thresh_temp=avg_melt_thresh
+    )
+
+    summary = {
+        'n_folds': n_folds,
+        'n_water_years': n_years,
+        'fold_results': fold_results,
+        'calibration_nse': {
+            'mean': np.mean(cal_nse_values),
+            'std': np.std(cal_nse_values),
+            'min': np.min(cal_nse_values),
+            'max': np.max(cal_nse_values)
+        },
+        'validation_nse': {
+            'mean': np.mean(val_nse_values),
+            'std': np.std(val_nse_values),
+            'min': np.min(val_nse_values),
+            'max': np.max(val_nse_values)
+        },
+        'validation_rmse': {
+            'mean': np.mean(val_rmse_values),
+            'std': np.std(val_rmse_values)
+        },
+        'averaged_params': avg_params,
+        'param_uncertainty': {
+            'melt_factor_std': std_melt_factor,
+            'melt_thresh_temp_std': std_melt_thresh
+        }
+    }
+
+    print(f"\n  Cross-Validation Summary:")
+    print(f"    Calibration NSE: {summary['calibration_nse']['mean']:.4f} ± {summary['calibration_nse']['std']:.4f}")
+    print(f"    Validation NSE:  {summary['validation_nse']['mean']:.4f} ± {summary['validation_nse']['std']:.4f}")
+    print(f"    Validation RMSE: {summary['validation_rmse']['mean']:.1f} ± {summary['validation_rmse']['std']:.1f} mm")
+    print(f"    Averaged Parameters:")
+    print(f"      melt_factor:      {avg_melt_factor:.4f} ± {std_melt_factor:.4f}")
+    print(f"      melt_thresh_temp: {avg_melt_thresh:.2f} ± {std_melt_thresh:.2f}")
+
+    # Check for overfitting (large gap between calibration and validation)
+    nse_gap = summary['calibration_nse']['mean'] - summary['validation_nse']['mean']
+    if nse_gap > 0.1:
+        print(f"\n  ⚠ Warning: Calibration-validation gap of {nse_gap:.3f} suggests possible overfitting")
+
+    return summary
 
 
 def plot_calibration_results(dates: np.ndarray,
@@ -397,9 +617,11 @@ def run_calibration(snotel_file: str,
                     station_column: str,
                     band_name: str,
                     output_dir: str,
-                    optimize: bool = True) -> Dict:
+                    optimize: bool = True,
+                    cross_validate: bool = True,
+                    n_folds: int = 5) -> Dict:
     """
-    Run full calibration workflow
+    Run full calibration workflow with optional cross-validation.
 
     Args:
         snotel_file: Path to SNOTEL data
@@ -408,6 +630,8 @@ def run_calibration(snotel_file: str,
         band_name: Elevation band to calibrate ('valley', 'mid', 'alpine')
         output_dir: Directory for output files
         optimize: Whether to run optimization (False = just compare)
+        cross_validate: Whether to perform k-fold cross-validation by water year
+        n_folds: Number of cross-validation folds
 
     Returns:
         Dictionary with results
@@ -443,37 +667,57 @@ def run_calibration(snotel_file: str,
     precip = merged['precip'].values
     observed_swe = merged[station_column].values
 
+    # Add water year column for cross-validation
+    merged['water_year'] = assign_water_years(merged['date'])
+    print(f"  Water years: WY{merged['water_year'].min()}-{merged['water_year'].max()}")
+
     # Default parameters simulation
     print("\nRunning default parameters...")
     default_params = SnowModelParams()
     default_model = SnowModel(default_params)
     simulated_default = default_model.simulate(tmean, precip)
 
-    metrics_default = calculate_metrics(observed_swe, simulated_default)
-    print(f"  Default NSE: {metrics_default['nse']:.4f}")
+    metrics_default = calculate_metrics(observed_swe, simulated_default, skip_spinup=True)
+    print(f"  Default NSE: {metrics_default['nse']:.4f} (after {SPINUP_DAYS}-day spin-up)")
     print(f"  Default RMSE: {metrics_default['rmse']:.1f} mm")
     print(f"  Default Bias: {metrics_default['bias']:.1f} mm")
 
-    # Optimization
+    # Cross-validation and/or optimization
+    cv_results = None
     if optimize:
-        print("\nOptimizing parameters (this may take a minute)...")
-        calibrated_params, opt_result = calibrate_parameters(
-            tmean, precip, observed_swe, method='differential_evolution'
-        )
+        if cross_validate:
+            # Run k-fold cross-validation by water year
+            cv_results = cross_validate_calibration(
+                merged_df=merged,
+                station_column=station_column,
+                n_folds=n_folds,
+                method='differential_evolution'
+            )
 
-        print(f"\n  Optimization {'succeeded' if opt_result['success'] else 'failed'}!")
-        print(f"  Final NSE: {opt_result['nse']:.4f}")
-        print(f"\n  Calibrated Parameters:")
+            # Use averaged parameters from cross-validation
+            calibrated_params = cv_results['averaged_params']
+            print(f"\n  Using averaged parameters from {n_folds}-fold cross-validation")
+        else:
+            # Single optimization on full dataset (original behavior)
+            print("\nOptimizing parameters on full dataset (no cross-validation)...")
+            calibrated_params, opt_result = calibrate_parameters(
+                tmean, precip, observed_swe, method='differential_evolution'
+            )
+
+            print(f"\n  Optimization {'succeeded' if opt_result['success'] else 'failed'}!")
+            print(f"  Final NSE: {opt_result['nse']:.4f}")
+
+        print(f"\n  Final Calibrated Parameters:")
         print(f"    melt_factor:      {calibrated_params.melt_factor:.4f} mm/°C/day (was {default_params.melt_factor})")
         print(f"    melt_thresh_temp: {calibrated_params.melt_thresh_temp:.2f} °C (was {default_params.melt_thresh_temp})")
     else:
         calibrated_params = default_params
 
-    # Run calibrated simulation
+    # Run calibrated simulation on full dataset
     calibrated_model = SnowModel(calibrated_params)
     simulated_calibrated = calibrated_model.simulate(tmean, precip)
 
-    metrics_calibrated = calculate_metrics(observed_swe, simulated_calibrated)
+    metrics_calibrated = calculate_metrics(observed_swe, simulated_calibrated, skip_spinup=True)
 
     # Calculate improvement
     nse_improvement = metrics_calibrated['nse'] - metrics_default['nse']
@@ -501,11 +745,11 @@ def run_calibration(snotel_file: str,
 
     # Save calibrated parameters
     params_file = output_path / f"calibrated_params_{band_name}.json"
-    import json
     params_dict = {
         'band': band_name,
         'station': station_column,
         'calibration_date': datetime.now().isoformat(),
+        'spinup_days': SPINUP_DAYS,
         'parameters': {
             'melt_factor': calibrated_params.melt_factor,
             'melt_thresh_temp': calibrated_params.melt_thresh_temp,
@@ -525,6 +769,28 @@ def run_calibration(snotel_file: str,
             'rmse': rmse_improvement
         }
     }
+
+    # Add cross-validation results if available
+    if cv_results is not None:
+        params_dict['cross_validation'] = {
+            'n_folds': cv_results['n_folds'],
+            'n_water_years': cv_results['n_water_years'],
+            'calibration_nse': cv_results['calibration_nse'],
+            'validation_nse': cv_results['validation_nse'],
+            'validation_rmse': cv_results['validation_rmse'],
+            'param_uncertainty': cv_results['param_uncertainty'],
+            'fold_summary': [
+                {
+                    'fold': r['fold'],
+                    'test_years': f"WY{r['test_years'][0]}-{r['test_years'][-1]}",
+                    'cal_nse': r['calibration_nse'],
+                    'val_nse': r['validation_nse'],
+                    'melt_factor': r['params'].melt_factor,
+                    'melt_thresh_temp': r['params'].melt_thresh_temp
+                }
+                for r in cv_results['fold_results']
+            ]
+        }
 
     with open(params_file, 'w') as f:
         json.dump(params_dict, f, indent=2, default=float)
@@ -559,6 +825,13 @@ def main():
     parser.add_argument('--no-optimize',
                         action='store_true',
                         help='Skip optimization (just compare default)')
+    parser.add_argument('--no-cv',
+                        action='store_true',
+                        help='Skip cross-validation (calibrate on full dataset)')
+    parser.add_argument('--n-folds',
+                        type=int,
+                        default=5,
+                        help='Number of cross-validation folds')
 
     args = parser.parse_args()
 
@@ -579,7 +852,9 @@ def main():
                 station_column=f'swe_{station}',
                 band_name=band,
                 output_dir=args.output_dir,
-                optimize=not args.no_optimize
+                optimize=not args.no_optimize,
+                cross_validate=not args.no_cv,
+                n_folds=args.n_folds
             )
             results[f"{station}_{band}"] = result
     elif args.station != 'all':
@@ -591,7 +866,9 @@ def main():
             station_column=f'swe_{args.station}',
             band_name=band,
             output_dir=args.output_dir,
-            optimize=not args.no_optimize
+            optimize=not args.no_optimize,
+            cross_validate=not args.no_cv,
+            n_folds=args.n_folds
         )
         results[f"{args.station}_{band}"] = result
     else:
@@ -604,7 +881,9 @@ def main():
                     station_column=f'swe_{station}',
                     band_name=args.band,
                     output_dir=args.output_dir,
-                    optimize=not args.no_optimize
+                    optimize=not args.no_optimize,
+                    cross_validate=not args.no_cv,
+                    n_folds=args.n_folds
                 )
                 results[f"{station}_{args.band}"] = result
 
@@ -618,6 +897,14 @@ def main():
         print(f"  Default NSE:    {result['metrics']['default']['nse']:.4f}")
         print(f"  Calibrated NSE: {result['metrics']['calibrated']['nse']:.4f}")
         print(f"  Improvement:    {result['improvement']['nse']:+.4f}")
+
+        # Show cross-validation results if available
+        if 'cross_validation' in result:
+            cv = result['cross_validation']
+            print(f"  Cross-Validation ({cv['n_folds']}-fold):")
+            print(f"    Cal NSE:  {cv['calibration_nse']['mean']:.4f} ± {cv['calibration_nse']['std']:.4f}")
+            print(f"    Val NSE:  {cv['validation_nse']['mean']:.4f} ± {cv['validation_nse']['std']:.4f}")
+
         print(f"  Parameters:")
         for param, value in result['parameters'].items():
             print(f"    {param}: {value:.4f}")
