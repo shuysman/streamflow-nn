@@ -134,17 +134,33 @@ def load_snotel_data(snotel_file: str) -> pd.DataFrame:
 
 
 def load_climate_data(climate_file: str) -> Dict[str, pd.DataFrame]:
-    """Load climate data for elevation bands"""
+    """
+    Load climate data for elevation bands OR point data.
+
+    Returns:
+        Dict mapping band names (or 'point') to DataFrames with 'date', 'precip', 'temp'
+    """
     df = pd.read_csv(climate_file)
     df['date'] = pd.to_datetime(df['date'])
 
+    # Case 1: Point-specific file (precip, temp columns)
+    if 'precip' in df.columns and 'temp' in df.columns:
+        return {
+            'point': df[['date', 'precip', 'temp']].copy()
+        }
+
+    # Case 2: Elevation bands file
     bands = {}
     for band in ['valley', 'mid', 'alpine']:
-        bands[band] = pd.DataFrame({
-            'date': df['date'],
-            'precip': df[f'precip_{band}'],
-            'temp': df[f'temp_{band}']
-        })
+        if f'precip_{band}' in df.columns and f'temp_{band}' in df.columns:
+            bands[band] = pd.DataFrame({
+                'date': df['date'],
+                'precip': df[f'precip_{band}'],
+                'temp': df[f'temp_{band}']
+            })
+
+    if not bands:
+        raise ValueError(f"Could not parse climate data from {climate_file}. Expected 'precip/temp' or 'precip_band/temp_band' columns.")
 
     return bands
 
@@ -606,8 +622,10 @@ def plot_calibration_results(dates: np.ndarray,
     if output_file:
         plt.savefig(output_file, dpi=150, bbox_inches='tight')
         print(f"  ✓ Saved plot: {output_file}")
+    else:
+        plt.show()
 
-    plt.show()
+    plt.close()
 
     return fig
 
@@ -650,8 +668,16 @@ def run_calibration(snotel_file: str,
     snotel_df = load_snotel_data(snotel_file)
     climate_data = load_climate_data(climate_file)
 
-    # Get band climate data
-    band_df = climate_data[band_name]
+    # Get climate data (point or band)
+    if 'point' in climate_data:
+        band_df = climate_data['point']
+        print(f"  Using point-specific climate data (ignores band '{band_name}')")
+        used_band_name = 'point'
+    elif band_name in climate_data:
+        band_df = climate_data[band_name]
+        used_band_name = band_name
+    else:
+        raise ValueError(f"Band '{band_name}' not found in climate file. Available: {list(climate_data.keys())}")
 
     # Merge on date
     merged = pd.merge(snotel_df[['date', station_column]],
@@ -832,6 +858,9 @@ def main():
                         type=int,
                         default=5,
                         help='Number of cross-validation folds')
+    parser.add_argument('--point-to-point',
+                        action='store_true',
+                        help='Use station-specific GridMET data (requires data/climate/snotel_gridmet_{station}.csv)')
 
     args = parser.parse_args()
 
@@ -843,49 +872,43 @@ def main():
 
     results = {}
 
-    if args.station == 'all' and args.band == 'all':
-        # Calibrate both stations with their appropriate bands
-        for station, band in station_band_mappings.items():
-            result = run_calibration(
-                snotel_file=args.snotel_file,
-                climate_file=args.climate_file,
-                station_column=f'swe_{station}',
-                band_name=band,
-                output_dir=args.output_dir,
-                optimize=not args.no_optimize,
-                cross_validate=not args.no_cv,
-                n_folds=args.n_folds
-            )
-            results[f"{station}_{band}"] = result
-    elif args.station != 'all':
-        # Use specified station with appropriate or specified band
-        band = args.band if args.band != 'all' else station_band_mappings[args.station]
+    # Determine which stations to run
+    stations_to_run = []
+    if args.station == 'all':
+        stations_to_run = list(station_band_mappings.keys())
+    else:
+        stations_to_run = [args.station]
+
+    # Run calibration for each station
+    for station in stations_to_run:
+        # Determine band
+        band = station_band_mappings[station]
+        
+        # Skip if user filtered by band and this station doesn't match
+        if args.band != 'all' and args.band != band:
+            continue
+
+        # Determine climate file
+        climate_file_path = args.climate_file
+        if args.point_to_point:
+            p2p_path = Path(f'data/climate/snotel_gridmet_{station}.csv')
+            if not p2p_path.exists():
+                print(f"⚠ Warning: Point climate file not found for {station}: {p2p_path}")
+                print("  Run src/download_snotel_climate.py first.")
+                continue
+            climate_file_path = str(p2p_path)
+
         result = run_calibration(
             snotel_file=args.snotel_file,
-            climate_file=args.climate_file,
-            station_column=f'swe_{args.station}',
+            climate_file=climate_file_path,
+            station_column=f'swe_{station}',
             band_name=band,
             output_dir=args.output_dir,
             optimize=not args.no_optimize,
             cross_validate=not args.no_cv,
             n_folds=args.n_folds
         )
-        results[f"{args.station}_{band}"] = result
-    else:
-        # Specified band with all matching stations
-        for station, mapped_band in station_band_mappings.items():
-            if mapped_band == args.band:
-                result = run_calibration(
-                    snotel_file=args.snotel_file,
-                    climate_file=args.climate_file,
-                    station_column=f'swe_{station}',
-                    band_name=args.band,
-                    output_dir=args.output_dir,
-                    optimize=not args.no_optimize,
-                    cross_validate=not args.no_cv,
-                    n_folds=args.n_folds
-                )
-                results[f"{station}_{args.band}"] = result
+        results[f"{station}_{band}"] = result
 
     # Summary
     print(f"\n{'='*70}")
