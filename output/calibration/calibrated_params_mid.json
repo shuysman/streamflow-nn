@@ -1,10 +1,10 @@
 {
   "band": "mid",
   "station": "swe_northeast_entrance",
-  "calibration_date": "2025-12-12T13:09:34.179952",
+  "calibration_date": "2025-12-15T17:54:28.593268",
   "parameters": {
-    "melt_factor": 1.5,
-    "melt_thresh_temp": -2.6285720831834154,
+    "melt_factor": 1.5013773058054578,
+    "melt_thresh_temp": -2.6274725357171085,
     "precip_fraction": 0.3
   },
   "default_parameters": {
@@ -23,17 +23,17 @@
       "peak_timing_error_days": 5.0
     },
     "calibrated": {
-      "nse": 0.8541385485552091,
-      "rmse": 35.26573420905126,
-      "bias": 2.209762428335236,
-      "r2": 0.8669367693777864,
-      "peak_error_mm": 16.9756382902641,
-      "peak_error_pct": 3.8409897480007476,
+      "nse": 0.8541388314824163,
+      "rmse": 35.265700006592596,
+      "bias": 2.2022351462125416,
+      "r2": 0.866930625613436,
+      "peak_error_mm": 17.002140975802604,
+      "peak_error_pct": 3.8469863733827965,
       "peak_timing_error_days": 6.0
     }
   },
   "improvement": {
-    "nse": 0.1049524205771315,
-    "rmse": 10.978590394053064
+    "nse": 0.10495270350433872,
+    "rmse": 10.978624596511729
   }
 }

@@ -53,7 +53,7 @@ class SnowModelParams:
     def get_bounds() -> list:
         """Parameter bounds for optimization"""
         return [
-            (0.1, 1.5),      # melt_factor: typical range 1-6 mm/°C/day
+            (0.1, 6),      # melt_factor: typical range 1-6 mm/°C/day
             (-10.0, 2.0),    # melt_thresh_temp: -10 to +2°C
             (0.05, 0.3)      # precip_fraction: 0.05-0.3
         ]
