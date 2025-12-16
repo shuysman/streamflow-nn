@@ -38,24 +38,22 @@ sys.path.insert(0, str(Path(__file__).parent))
 @dataclass
 class SnowModelParams:
     """Snow model parameters for calibration"""
-    melt_factor: float = 0.35          # mm/°C/day (degree-day factor)
+    melt_factor: float = 0.35           # mm/°C/day (degree-day factor)
     melt_thresh_temp: float = -6.0     # °C (temperature threshold for melt)
-    precip_fraction: float = 0.167     # unitless (rain/snow partitioning)
 
     def to_array(self) -> np.ndarray:
-        return np.array([self.melt_factor, self.melt_thresh_temp, self.precip_fraction])
+        return np.array([self.melt_factor, self.melt_thresh_temp])
 
     @classmethod
     def from_array(cls, arr: np.ndarray) -> 'SnowModelParams':
-        return cls(melt_factor=arr[0], melt_thresh_temp=arr[1], precip_fraction=arr[2])
+        return cls(melt_factor=arr[0], melt_thresh_temp=arr[1])
 
     @staticmethod
     def get_bounds() -> list:
         """Parameter bounds for optimization"""
         return [
-            (0.1, 6),      # melt_factor: typical range 1-6 mm/°C/day
-            (-10.0, 2.0),    # melt_thresh_temp: -10 to +2°C
-            (0.05, 0.3)      # precip_fraction: 0.05-0.3
+            (0.5, 6.0),      # melt_factor: typical range 1-6 mm/°C/day
+            (-10.0, 2.0)    # melt_thresh_temp: -10 to +2°C
         ]
 
 
@@ -64,6 +62,7 @@ class SnowModel:
 
     def __init__(self, params: SnowModelParams):
         self.params = params
+        self.fixed_precip_fraction = 0.167 # Fixed to match water_balance.py
 
     def simulate(self, tmean: np.ndarray, precip: np.ndarray) -> np.ndarray:
         """
@@ -100,7 +99,7 @@ class SnowModel:
             elif tmean[i] > (self.params.melt_thresh_temp + 6):
                 rain_fraction = 1.0
             else:
-                rain_fraction = self.params.precip_fraction * (tmean[i] - self.params.melt_thresh_temp)
+                rain_fraction = self.fixed_precip_fraction * (tmean[i] - self.params.melt_thresh_temp)
 
             rain_fraction = np.clip(rain_fraction, 0, 1)
             snow_increment = (1.0 - rain_fraction) * precip[i]
@@ -204,12 +203,7 @@ def objective_function(params_array: np.ndarray,
     metrics = calculate_metrics(observed_swe, simulated)
 
     # Return 1 - NSE (we want to minimize, so lower is better)
-    # Add penalty for unrealistic parameters
-    penalty = 0.0
-    if params.melt_factor < 0.1 or params.melt_factor > 2.0:
-        penalty += 10.0
-
-    return (1 - metrics['nse']) + penalty
+    return (1 - metrics['nse'])
 
 
 def calibrate_parameters(tmean: np.ndarray,
@@ -361,7 +355,7 @@ def plot_calibration_results(dates: np.ndarray,
         ['Parameter', 'Default', 'Calibrated', 'Units'],
         ['Melt Factor', f'{default_params.melt_factor:.3f}', f'{calibrated_params.melt_factor:.3f}', 'mm/°C/day'],
         ['Melt Threshold', f'{default_params.melt_thresh_temp:.1f}', f'{calibrated_params.melt_thresh_temp:.1f}', '°C'],
-        ['Precip Fraction', f'{default_params.precip_fraction:.3f}', f'{calibrated_params.precip_fraction:.3f}', '-'],
+        ['Precip Fraction', '0.167', '0.167', '-'],
         ['', '', '', ''],
         ['Metric', 'Default', 'Calibrated', ''],
         ['NSE', f'{metrics_default["nse"]:.4f}', f'{metrics_calibrated["nse"]:.4f}', ''],
@@ -472,7 +466,6 @@ def run_calibration(snotel_file: str,
         print(f"\n  Calibrated Parameters:")
         print(f"    melt_factor:      {calibrated_params.melt_factor:.4f} mm/°C/day (was {default_params.melt_factor})")
         print(f"    melt_thresh_temp: {calibrated_params.melt_thresh_temp:.2f} °C (was {default_params.melt_thresh_temp})")
-        print(f"    precip_fraction:  {calibrated_params.precip_fraction:.4f} (was {default_params.precip_fraction})")
     else:
         calibrated_params = default_params
 
@@ -516,12 +509,12 @@ def run_calibration(snotel_file: str,
         'parameters': {
             'melt_factor': calibrated_params.melt_factor,
             'melt_thresh_temp': calibrated_params.melt_thresh_temp,
-            'precip_fraction': calibrated_params.precip_fraction
+            'precip_fraction': 0.167
         },
         'default_parameters': {
             'melt_factor': default_params.melt_factor,
             'melt_thresh_temp': default_params.melt_thresh_temp,
-            'precip_fraction': default_params.precip_fraction
+            'precip_fraction': 0.167
         },
         'metrics': {
             'default': metrics_default,
