@@ -49,8 +49,22 @@ def train_model():
     print(f"Training samples after removing NaN targets: {len(train_data)}")
     print()
 
+    # --- FIX: Time-based Split ---
+    # We must split chronologically (past -> future) to avoid data leakage.
+    # Random splitting (default) allows the model to "cheat" by interpolating between days.
+    split_index = int(len(train_data) * 0.85)
+    train_df = train_data.iloc[:split_index]
+    tuning_df = train_data.iloc[split_index:]
+    
+    print(f"Splitting data chronologically:")
+    print(f"  Training set (First 85%): {len(train_df)} rows")
+    print(f"  Tuning/Val set (Last 15%): {len(tuning_df)} rows")
+    print()
+    # -----------------------------
+
     # Create TabularDataset
-    train_dataset = TabularDataset(train_data)
+    train_dataset = TabularDataset(train_df)
+    tuning_dataset = TabularDataset(tuning_df)
 
     # Configure predictor
     model_path = './lamar_model'
@@ -74,8 +88,9 @@ def train_model():
         eval_metric='root_mean_squared_error'
     ).fit(
         train_data=train_dataset,
-        time_limit=3600,  # 10 minutes training time
-        presets='best_quality',  # Use medium quality for speed
+        tuning_data=tuning_dataset, # Explicitly pass validation data
+        time_limit=3600,  # 60 minutes training time
+        presets='medium_quality',  # Use medium quality for speed
         # Alternative presets:
         # - 'best_quality': Slower but more accurate
         # - 'high_quality': Good balance
