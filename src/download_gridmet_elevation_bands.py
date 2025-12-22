@@ -404,20 +404,25 @@ def compute_zonal_statistics(ds_climate, masks):
             else:
                 row[f'precip_{band}'] = 0.0
 
-            # Temperature (convert K to C and average min/max)
+            # Temperature (convert K to C)
             if mask_array.any():
                 tmmn_values = tmmn[mask_array]
                 tmmx_values = tmmx[mask_array]
                 tmmn_mean = np.nanmean(tmmn_values) if len(tmmn_values) > 0 else np.nan
                 tmmx_mean = np.nanmean(tmmx_values) if len(tmmx_values) > 0 else np.nan
 
-                if not np.isnan(tmmn_mean) and not np.isnan(tmmx_mean):
-                    temp_c = ((tmmn_mean + tmmx_mean) / 2.0) - 273.15
-                    row[f'temp_{band}'] = float(temp_c)
+                if not np.isnan(tmmn_mean):
+                    row[f'tmin_{band}'] = float(tmmn_mean - 273.15)
                 else:
-                    row[f'temp_{band}'] = 0.0
+                    row[f'tmin_{band}'] = 0.0
+                
+                if not np.isnan(tmmx_mean):
+                    row[f'tmax_{band}'] = float(tmmx_mean - 273.15)
+                else:
+                    row[f'tmax_{band}'] = 0.0
             else:
-                row[f'temp_{band}'] = 0.0
+                row[f'tmin_{band}'] = 0.0
+                row[f'tmax_{band}'] = 0.0
 
         results.append(row)
 
@@ -498,15 +503,13 @@ def main():
         axes[0].legend()
         axes[0].grid(True, alpha=0.3)
 
-        # Plot temperature by band
-        axes[1].plot(df_climate['date'], df_climate['temp_valley'],
-                     label='Valley', alpha=0.7, linewidth=0.8)
-        axes[1].plot(df_climate['date'], df_climate['temp_mid'],
-                     label='Mid', alpha=0.7, linewidth=0.8)
-        axes[1].plot(df_climate['date'], df_climate['temp_alpine'],
-                     label='Alpine', alpha=0.7, linewidth=0.8)
-        axes[1].axhline(0, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Freezing')
-        axes[1].set_title('Temperature by Elevation Band', fontweight='bold', fontsize=12)
+        # Plot temperature by band (showing tmax valley and tmin alpine for range)
+        axes[1].plot(df_climate['date'], df_climate['tmax_valley'],
+                     label='Valley Max', alpha=0.6, linewidth=0.8, color='red')
+        axes[1].plot(df_climate['date'], df_climate['tmin_alpine'],
+                     label='Alpine Min', alpha=0.6, linewidth=0.8, color='blue')
+        axes[1].axhline(0, color='black', linestyle='--', linewidth=1, alpha=0.3, label='Freezing')
+        axes[1].set_title('Temperature Extremes (Valley Max vs Alpine Min)', fontweight='bold', fontsize=12)
         axes[1].set_xlabel('Date')
         axes[1].set_ylabel('Temperature (°C)')
         axes[1].legend()
