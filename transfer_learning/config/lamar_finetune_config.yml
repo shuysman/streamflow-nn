@@ -1,0 +1,66 @@
+# Fine-Tuning Config for Lamar River (Clean Transfer Learning)
+# Loads the weights from CAMELS pre-training and adapts to Lamar
+
+experiment_name: lamar_finetune_clean_tl
+device: cuda:0
+
+# Base Model (The Pre-trained Weights) - converted to CudaLSTM format with NetCDF-compatible column names
+base_run_dir: /home/steve/sync/streamflow/runs/camels_pretrain_cudalstm_compat
+
+# Paths
+data_dir: transfer_learning/data/neuralhydrology
+train_basin_file: transfer_learning/data/basins.txt
+validation_basin_file: transfer_learning/data/basins.txt
+test_basin_file: transfer_learning/data/basins.txt
+
+# Model (Must match Base Model Architecture exactly)
+model: cudalstm
+head: regression
+output_activation: linear
+hidden_size: 256
+initial_forget_bias: 3
+output_dropout: 0.4
+
+# Fine-Tuning Settings
+# We use a lower learning rate to gently adapt the weights
+optimizer: Adam
+loss: MSE
+learning_rate: 0.0001 
+batch_size: 256
+epochs: 20
+finetune_modules:
+  - lstm
+  - head
+metrics:
+  - NSE
+  - KGE
+  - RMSE
+
+# Data (Must map your local data to match Base Model features)
+dataset: generic
+predict_last_n: 1
+forcings:
+seq_length: 365
+# Date ranges adjusted to match available data (1998-01-01 to 2024-11-24)
+train_start_date: '01/10/2000'
+train_end_date: '30/09/2015'
+validation_start_date: '01/10/2015'
+validation_end_date: '30/09/2020'
+test_start_date: '01/10/2020'
+test_end_date: '30/09/2024'
+target_variables:
+  - QObs_mm_d
+
+dynamic_inputs:
+  - prcp_mm_day
+  - tmax_C
+  - tmin_C
+
+static_attributes:
+  - elev_mean
+  - slope_mean
+  - area_gages2
+  - frac_forest
+  - soil_depth_pelletier
+  - sand_frac
+  - clay_frac

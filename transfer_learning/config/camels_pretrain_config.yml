@@ -1,0 +1,61 @@
+# CAMELS Pre-training Config (Clean Transfer Learning)
+# Note: You must download CAMELS US data to run this.
+
+experiment_name: camels_pretrain_clean_tl
+device: cuda:0
+
+# Paths
+data_dir: transfer_learning/data/CAMELS_US
+train_basin_file: transfer_learning/data/camels_basins_train.txt
+validation_basin_file: transfer_learning/data/camels_basins_val.txt
+test_basin_file: transfer_learning/data/camels_basins_test.txt
+
+# Model
+model: lstm # Standard LSTM (better compatibility)
+head: regression
+output_activation: linear
+hidden_size: 256 # Larger model for general knowledge
+initial_forget_bias: 3
+output_dropout: 0.4
+
+# Training
+epochs: 30
+batch_size: 256
+loss: MSE
+optimizer: Adam
+learning_rate: 0.001
+metrics:
+  - NSE
+  - KGE
+  - RMSE
+  - Pearson-r
+
+# Data
+dataset: camels_us
+forcings: daymet
+seq_length: 365
+predict_last_n: 1
+train_start_date: '01/10/1999'
+train_end_date: '30/09/2008'
+validation_start_date: '01/10/1989'
+validation_end_date: '30/09/1999'
+test_start_date: '01/10/1980'
+test_end_date: '30/09/1989'
+target_variables:
+  - QObs(mm/d)
+dynamic_inputs:
+  - prcp(mm/day)
+  - tmax(C)
+  - tmin(C)
+  # - srad
+  # - vp
+
+static_attributes:
+  - elev_mean
+  - slope_mean
+  - area_gages2
+  - frac_forest
+  - soil_depth_pelletier
+  - sand_frac
+  - clay_frac
+  # ... (CAMELS has many attributes)
