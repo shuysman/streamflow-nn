@@ -47,8 +47,8 @@ dynamic_inputs:
   - prcp(mm/day)
   - tmax(C)
   - tmin(C)
-  # - srad
-  # - vp
+  - srad(W/m2)   # Solar radiation for energy balance snowmelt
+  - vp(Pa)       # Vapor pressure for evapotranspiration
 
 static_attributes:
   - elev_mean

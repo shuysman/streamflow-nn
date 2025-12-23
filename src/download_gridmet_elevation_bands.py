@@ -4,12 +4,15 @@ Download and process gridMET climate data for Lamar River watershed using elevat
 
 This script implements the framework from climate_integration_framework.md:
 - Downloads gridMET precipitation and temperature data
+- Downloads solar radiation (srad) and specific humidity (sph) for energy balance
+- Converts specific humidity to vapor pressure using elevation-based pressure
 - Classifies grid cells into 3 elevation bands (Valley, Mid, Alpine)
 - Computes zonal statistics for each band
 - Outputs daily time series suitable for LSTM input
 
 Author: Stage 2 Implementation
 Date: 2025-11-26
+Updated: 2025-12-23 - Added srad and vp for energy balance modeling
 """
 
 import numpy as np
@@ -27,6 +30,51 @@ BAND_THRESHOLDS = {
     'mid': (2286, 2804),      # 7,500-9,200 ft: Peak accumulation zone
     'alpine': (2804, 10000)   # > 9,200 ft: Late season baseflow
 }
+
+# Mean elevation for each band (used for pressure calculation)
+BAND_MEAN_ELEVATIONS = {
+    'valley': 2000,   # Mean of 0-2286m
+    'mid': 2545,      # Mean of 2286-2804m
+    'alpine': 3100    # Mean of 2804-3400m (realistic upper bound)
+}
+
+
+def calculate_surface_pressure(elevation_m):
+    """
+    Calculate surface pressure from elevation using barometric formula.
+
+    P_surf = 101325 * (1 - 2.25577e-5 * Z)^5.25588
+
+    Args:
+        elevation_m: Elevation in meters
+
+    Returns:
+        Surface pressure in Pascals (Pa)
+    """
+    return 101325.0 * (1.0 - 2.25577e-5 * elevation_m) ** 5.25588
+
+
+def specific_humidity_to_vapor_pressure(sph, elevation_m):
+    """
+    Convert specific humidity to vapor pressure.
+
+    VP = (SPH * P_surf) / (0.622 + 0.378 * SPH)
+
+    This is the inverse of the specific humidity formula:
+    SPH = 0.622 * VP / (P_surf - 0.378 * VP)
+
+    Args:
+        sph: Specific humidity (kg/kg)
+        elevation_m: Elevation in meters (scalar or array matching sph shape)
+
+    Returns:
+        Vapor pressure in Pascals (Pa)
+    """
+    p_surf = calculate_surface_pressure(elevation_m)
+    # Avoid division by zero for very small sph values
+    sph = np.maximum(sph, 1e-10)
+    vp = (sph * p_surf) / (0.622 + 0.378 * sph)
+    return vp
 
 def load_watershed():
     """Load the Lamar River watershed polygon."""
@@ -94,18 +142,23 @@ def download_gridmet_opendap(start_date='1998-01-01', end_date='2025-01-01'):
     # gridMET OPeNDAP URLs
     base_url = "http://thredds.northwestknowledge.net:8080/thredds/dodsC/agg_met_"
 
-    # Map file names to their actual variable names in the dataset
+    # Map: output_name -> (file_suffix, internal_variable_name)
+    # The internal variable names differ from file names in gridMET
+    # Core variables: precip and temperature
+    # Energy balance variables: solar radiation (srad) and specific humidity (sph)
     variables = {
-        'precipitation_amount': 'pr_1979_CurrentYear_CONUS.nc',
-        'daily_minimum_temperature': 'tmmn_1979_CurrentYear_CONUS.nc',
-        'daily_maximum_temperature': 'tmmx_1979_CurrentYear_CONUS.nc'
+        'pr': ('pr_1979_CurrentYear_CONUS.nc', 'precipitation_amount'),
+        'tmmn': ('tmmn_1979_CurrentYear_CONUS.nc', 'daily_minimum_temperature'),
+        'tmmx': ('tmmx_1979_CurrentYear_CONUS.nc', 'daily_maximum_temperature'),
+        'srad': ('srad_1979_CurrentYear_CONUS.nc', 'daily_mean_shortwave_radiation_at_surface'),
+        'sph': ('sph_1979_CurrentYear_CONUS.nc', 'daily_mean_specific_humidity'),
     }
 
     datasets = {}
 
-    for var_name, file in variables.items():
-        url = base_url + file
-        print(f"  Accessing {var_name}...")
+    for output_name, (file_suffix, internal_var) in variables.items():
+        url = base_url + file_suffix
+        print(f"  Accessing {output_name} ({internal_var})...")
 
         try:
             # Open dataset (don't load yet - too big!)
@@ -135,29 +188,28 @@ def download_gridmet_opendap(start_date='1998-01-01', end_date='2025-01-01'):
 
             # NOW load into memory (much smaller subset)
             print(f"    Loading subset...")
-            datasets[var_name] = ds_subset.load()
+            ds_loaded = ds_subset.load()
 
-            print(f"    ✓ {var_name}: {datasets[var_name][var_name].shape}")
+            # Rename internal variable to our standard output name
+            ds_loaded = ds_loaded.rename({internal_var: output_name})
+            datasets[output_name] = ds_loaded
+
+            print(f"    ✓ {output_name}: {datasets[output_name][output_name].shape}")
 
         except Exception as e:
-            print(f"    Error downloading {var_name}: {e}")
+            print(f"    Error downloading {output_name}: {e}")
             import traceback
             traceback.print_exc()
             return None
 
-    # Merge datasets
+    # Merge datasets (already renamed to standard names: pr, tmmn, tmmx, srad, sph)
     ds = xr.merge([
-        datasets['precipitation_amount'],
-        datasets['daily_minimum_temperature'],
-        datasets['daily_maximum_temperature']
+        datasets['pr'],
+        datasets['tmmn'],
+        datasets['tmmx'],
+        datasets['srad'],
+        datasets['sph']
     ])
-
-    # Rename variables to shorter names
-    ds = ds.rename({
-        'precipitation_amount': 'pr',
-        'daily_minimum_temperature': 'tmmn',
-        'daily_maximum_temperature': 'tmmx'
-    })
 
     # Rename time dimension if needed
     if 'day' in ds.dims:
@@ -367,8 +419,14 @@ def compute_zonal_statistics(ds_climate, masks):
     """
     Compute mean climate variables for each elevation band.
 
+    Computes:
+    - Precipitation (mm/day)
+    - Temperature min/max (C)
+    - Solar radiation (W/m2)
+    - Vapor pressure (Pa) - converted from specific humidity using band elevation
+
     Returns:
-        pd.DataFrame: Daily time series with columns for each band
+        pd.DataFrame: Daily time series with columns for each band plus basin-wide means
     """
     print("\nComputing zonal statistics for each elevation band...")
 
@@ -378,6 +436,20 @@ def compute_zonal_statistics(ds_climate, masks):
         mask_arrays[band] = mask.values
         n_cells = int(mask_arrays[band].sum())
         print(f"  Band '{band}': {n_cells} cells")
+
+    # Create combined watershed mask for basin-wide averages
+    watershed_mask = np.zeros_like(mask_arrays['valley'], dtype=bool)
+    for mask_array in mask_arrays.values():
+        watershed_mask |= mask_array
+    n_watershed_cells = int(watershed_mask.sum())
+    print(f"  Watershed total: {n_watershed_cells} cells")
+
+    # Check if srad and sph are available
+    has_energy_vars = 'srad' in ds_climate.data_vars and 'sph' in ds_climate.data_vars
+    if has_energy_vars:
+        print("  Energy balance variables (srad, sph) detected - will compute vp")
+    else:
+        print("  Warning: Energy balance variables not available")
 
     results = []
 
@@ -393,6 +465,11 @@ def compute_zonal_statistics(ds_climate, masks):
         pr = ds_climate.pr.isel(time=t).values
         tmmn = ds_climate.tmmn.isel(time=t).values
         tmmx = ds_climate.tmmx.isel(time=t).values
+
+        # Extract energy balance variables if available
+        if has_energy_vars:
+            srad = ds_climate.srad.isel(time=t).values  # W/m2
+            sph = ds_climate.sph.isel(time=t).values    # kg/kg
 
         # Compute mean for each band using numpy
         for band, mask_array in mask_arrays.items():
@@ -415,7 +492,7 @@ def compute_zonal_statistics(ds_climate, masks):
                     row[f'tmin_{band}'] = float(tmmn_mean - 273.15)
                 else:
                     row[f'tmin_{band}'] = 0.0
-                
+
                 if not np.isnan(tmmx_mean):
                     row[f'tmax_{band}'] = float(tmmx_mean - 273.15)
                 else:
@@ -423,6 +500,54 @@ def compute_zonal_statistics(ds_climate, masks):
             else:
                 row[f'tmin_{band}'] = 0.0
                 row[f'tmax_{band}'] = 0.0
+
+            # Solar radiation (W/m2)
+            if has_energy_vars and mask_array.any():
+                srad_values = srad[mask_array]
+                srad_mean = np.nanmean(srad_values) if len(srad_values) > 0 else 0.0
+                row[f'srad_{band}'] = float(srad_mean) if not np.isnan(srad_mean) else 0.0
+            elif has_energy_vars:
+                row[f'srad_{band}'] = 0.0
+
+            # Vapor pressure (Pa) - convert from specific humidity using band elevation
+            if has_energy_vars and mask_array.any():
+                sph_values = sph[mask_array]
+                sph_mean = np.nanmean(sph_values) if len(sph_values) > 0 else 0.0
+                if not np.isnan(sph_mean) and sph_mean > 0:
+                    # Use band-specific mean elevation for pressure calculation
+                    band_elev = BAND_MEAN_ELEVATIONS[band]
+                    vp = specific_humidity_to_vapor_pressure(sph_mean, band_elev)
+                    row[f'vp_{band}'] = float(vp)
+                else:
+                    row[f'vp_{band}'] = 0.0
+            elif has_energy_vars:
+                row[f'vp_{band}'] = 0.0
+
+        # Compute basin-wide averages (for NeuralHydrology compatibility)
+        if watershed_mask.any():
+            # Precip
+            pr_basin = np.nanmean(pr[watershed_mask])
+            row['precip'] = float(pr_basin) if not np.isnan(pr_basin) else 0.0
+
+            # Temperature
+            tmin_basin = np.nanmean(tmmn[watershed_mask]) - 273.15
+            tmax_basin = np.nanmean(tmmx[watershed_mask]) - 273.15
+            row['tmin'] = float(tmin_basin) if not np.isnan(tmin_basin) else 0.0
+            row['tmax'] = float(tmax_basin) if not np.isnan(tmax_basin) else 0.0
+
+            # Energy balance (basin-wide)
+            if has_energy_vars:
+                srad_basin = np.nanmean(srad[watershed_mask])
+                row['srad'] = float(srad_basin) if not np.isnan(srad_basin) else 0.0
+
+                sph_basin = np.nanmean(sph[watershed_mask])
+                if not np.isnan(sph_basin) and sph_basin > 0:
+                    # Use area-weighted mean elevation (~2500m for Lamar)
+                    basin_mean_elev = 2500
+                    vp_basin = specific_humidity_to_vapor_pressure(sph_basin, basin_mean_elev)
+                    row['vp'] = float(vp_basin)
+                else:
+                    row['vp'] = 0.0
 
         results.append(row)
 
