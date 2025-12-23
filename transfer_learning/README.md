@@ -19,13 +19,19 @@ Ensure the following folders exist within it:
 - `camels_attributes_v2.0/`
 - `usgs_streamflow_v1.2/`
 
-### Step 2: Prepare Lamar Target Data
-Run the scripts in order to generate the lumped NetCDF file for Lamar:
+### Step 2: Prepare Target Watershed Data
+Run the scripts in order to generate the lumped NetCDF file:
 ```bash
+# Download climate data (edit script for your watershed bounds)
 python transfer_learning/src/download_gridmet_elevation_bands.py
-python transfer_learning/src/prep_lumped_lamar.py
+
+# Prepare lumped data (works for any watershed)
+python transfer_learning/src/prep_lumped_data.py --watershed lamar
+
+# Or with custom elevation band weights:
+python transfer_learning/src/prep_lumped_data.py --watershed hoh --weights 10,85,5
 ```
-*Result:* `transfer_learning/data/neuralhydrology/time_series/lamar_lumped.nc`
+*Result:* `transfer_learning/data/neuralhydrology/time_series/{watershed}_lumped.nc`
 
 ### Step 3: Pre-train on CAMELS
 This trains the "Universal" model on 531 basins.
