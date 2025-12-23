@@ -3,12 +3,15 @@
 Download and process gridMET climate data for Hoh River watershed using elevation bands.
 
 Adapts the Lamar approach for Hoh River:
-- Downloads gridMET precipitation and temperature data
+- Downloads gridMET precipitation, temperature, solar radiation, and humidity data
+- Converts specific humidity to vapor pressure using elevation-based pressure
 - Classifies grid cells into 3 elevation bands (Valley, Mid, Alpine)
 - Computes zonal statistics for each band
 - Outputs daily time series suitable for LSTM input
 
 Key difference from Lamar: Hoh is rain-dominated with lower elevation range.
+
+Updated: 2025-12-23 - Added srad and vp for energy balance modeling
 """
 
 import numpy as np
@@ -27,6 +30,26 @@ BAND_THRESHOLDS = {
     'mid': (800, 1500),        # 2,625-4,921 ft: Mid-elevation rain/snow transition
     'alpine': (1500, 2500)     # > 4,921 ft: Olympic peaks, snow accumulation
 }
+
+
+def calculate_surface_pressure(elevation_m):
+    """
+    Calculate surface pressure from elevation using barometric formula.
+    P_surf = 101325 * (1 - 2.25577e-5 * Z)^5.25588
+    """
+    return 101325.0 * (1.0 - 2.25577e-5 * elevation_m) ** 5.25588
+
+
+def specific_humidity_to_vapor_pressure(sph, elevation_m):
+    """
+    Convert specific humidity to vapor pressure.
+    VP = (SPH * P_surf) / (0.622 + 0.378 * SPH)
+    """
+    p_surf = calculate_surface_pressure(elevation_m)
+    sph = np.maximum(sph, 1e-10)
+    vp = (sph * p_surf) / (0.622 + 0.378 * sph)
+    return vp
+
 
 def load_watershed():
     """Load the Hoh River watershed polygon."""
@@ -65,7 +88,9 @@ def download_gridmet_opendap(start_date='1990-01-01', end_date='2025-01-01'):
     variables = {
         'pr': ('pr_1979_CurrentYear_CONUS.nc', 'precipitation_amount'),
         'tmmn': ('tmmn_1979_CurrentYear_CONUS.nc', 'daily_minimum_temperature'),
-        'tmmx': ('tmmx_1979_CurrentYear_CONUS.nc', 'daily_maximum_temperature')
+        'tmmx': ('tmmx_1979_CurrentYear_CONUS.nc', 'daily_maximum_temperature'),
+        'srad': ('srad_1979_CurrentYear_CONUS.nc', 'daily_mean_shortwave_radiation_at_surface'),
+        'sph': ('sph_1979_CurrentYear_CONUS.nc', 'daily_mean_specific_humidity'),
     }
 
     datasets = {}
@@ -119,7 +144,9 @@ def download_gridmet_opendap(start_date='1990-01-01', end_date='2025-01-01'):
     ds_merged = xr.Dataset({
         'precip': datasets['pr']['precipitation_amount'],
         'tmin': datasets['tmmn']['daily_minimum_temperature'],
-        'tmax': datasets['tmmx']['daily_maximum_temperature']
+        'tmax': datasets['tmmx']['daily_maximum_temperature'],
+        'srad': datasets['srad']['daily_mean_shortwave_radiation_at_surface'],
+        'sph': datasets['sph']['daily_mean_specific_humidity'],
     })
 
     print(f"✓ Merged dataset: {ds_merged.dims}")
@@ -215,17 +242,30 @@ def compute_band_statistics(ds, bands):
         precip_masked = ds['precip'].where(mask)
         tmin_masked = ds['tmin'].where(mask)
         tmax_masked = ds['tmax'].where(mask)
+        srad_masked = ds['srad'].where(mask)
+        sph_masked = ds['sph'].where(mask)
+
+        # Get mean elevation for this band for VP calculation
+        elev_masked = ds['elevation'].where(mask)
+        mean_elev = float(elev_masked.mean())
 
         # Compute spatial mean (over lat/lon)
         precip_mean = precip_masked.mean(dim=['lat', 'lon'])
         tmin_mean = tmin_masked.mean(dim=['lat', 'lon'])
         tmax_mean = tmax_masked.mean(dim=['lat', 'lon'])
+        srad_mean = srad_masked.mean(dim=['lat', 'lon'])
+        sph_mean = sph_masked.mean(dim=['lat', 'lon'])
+
+        # Convert specific humidity to vapor pressure
+        vp_mean = specific_humidity_to_vapor_pressure(sph_mean.values, mean_elev)
 
         # Convert to dataframe
         df = pd.DataFrame({
             f'precip_{band_name}': precip_mean.values,
             f'tmin_{band_name}': tmin_mean.values - 273.15,  # K to C
-            f'tmax_{band_name}': tmax_mean.values - 273.15
+            f'tmax_{band_name}': tmax_mean.values - 273.15,
+            f'srad_{band_name}': srad_mean.values,  # W/m2
+            f'vp_{band_name}': vp_mean,  # Pa
         }, index=pd.to_datetime(ds['day'].values))
 
         # Derived variables
