@@ -24,7 +24,7 @@ output_dropout: 0.4
 
 # Fine-Tuning Settings
 optimizer: Adam
-loss: MSE
+loss: NSE
 learning_rate: 0.0001  # 10x lower than pre-training for gentle adaptation
 batch_size: 256
 epochs: 30  # More epochs for Hoh (different regime than CAMELS avg)
@@ -57,6 +57,8 @@ dynamic_inputs:
   - prcp_mm_day
   - tmax_C
   - tmin_C
+  - srad_W_m2
+  - vp_Pa
 
 # Static attributes (same as CAMELS pre-training)
 # Values should be set for Hoh River characteristics

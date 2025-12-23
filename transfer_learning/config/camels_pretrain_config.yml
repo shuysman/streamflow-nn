@@ -21,9 +21,12 @@ output_dropout: 0.4
 # Training
 epochs: 30
 batch_size: 256
-loss: MSE
+loss: NSE
 optimizer: Adam
-learning_rate: 0.001
+learning_rate:
+  0: 0.001
+  20: 0.0005
+  25: 0.0001
 metrics:
   - NSE
   - KGE

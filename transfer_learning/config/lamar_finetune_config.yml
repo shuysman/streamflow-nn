@@ -24,7 +24,7 @@ output_dropout: 0.4
 # Fine-Tuning Settings
 # We use a lower learning rate to gently adapt the weights
 optimizer: Adam
-loss: MSE
+loss: NSE
 learning_rate: 0.0001 
 batch_size: 256
 epochs: 20
@@ -55,6 +55,8 @@ dynamic_inputs:
   - prcp_mm_day
   - tmax_C
   - tmin_C
+  - srad_W_m2
+  - vp_Pa
 
 static_attributes:
   - elev_mean
