@@ -11,7 +11,7 @@ validation_basin_file: transfer_learning/data/camels_basins_val.txt
 test_basin_file: transfer_learning/data/camels_basins_test.txt
 
 # Model
-model: lstm # Standard LSTM (better compatibility)
+model: cudalstm
 head: regression
 output_activation: linear
 hidden_size: 256 # Larger model for general knowledge
