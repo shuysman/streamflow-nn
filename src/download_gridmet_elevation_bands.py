@@ -84,7 +84,7 @@ def load_watershed():
     print(f"  Bounds: {gdf.total_bounds}")
     return gdf
 
-def download_gridmet_data(start_date='1998-01-01', end_date='2025-01-01'):
+def download_gridmet_data(start_date='1990-01-01', end_date='2025-01-01'):
     """
     Download gridMET data using pygeohydro.
 
@@ -127,7 +127,7 @@ def download_gridmet_data(start_date='1998-01-01', end_date='2025-01-01'):
         print("Warning: pygeohydro not available, using manual OPeNDAP access...")
         return download_gridmet_opendap(start_date, end_date)
 
-def download_gridmet_opendap(start_date='1998-01-01', end_date='2025-01-01'):
+def download_gridmet_opendap(start_date='1990-01-01', end_date='2025-01-01'):
     """
     Alternative method: Direct OPeNDAP access to gridMET.
     Note: Spatial subsetting with gridMET is tricky, so we load regional data.
@@ -572,7 +572,7 @@ def main():
     print("="*80)
 
     # Configuration
-    start_date = '1998-01-01'
+    start_date = '1990-01-01'
     end_date = '2025-01-01'
     output_file = '../data/climate/lamar_gridmet_elevation_bands.csv'
 
