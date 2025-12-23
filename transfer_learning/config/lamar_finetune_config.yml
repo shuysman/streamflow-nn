@@ -16,7 +16,7 @@ test_basin_file: transfer_learning/data/basins.txt
 # Model (Must match Base Model Architecture exactly)
 model: cudalstm
 head: regression
-output_activation: linear
+output_activation: softplus
 hidden_size: 256
 initial_forget_bias: 3
 output_dropout: 0.4

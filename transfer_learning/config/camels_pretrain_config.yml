@@ -13,7 +13,7 @@ test_basin_file: transfer_learning/data/camels_basins_test.txt
 # Model
 model: cudalstm
 head: regression
-output_activation: linear
+output_activation: softplus
 hidden_size: 256 # Larger model for general knowledge
 initial_forget_bias: 3
 output_dropout: 0.4
