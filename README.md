@@ -1,112 +1,196 @@
-# Neural Network Streamflow Forecasting
+# Streamflow Forecasting with Transfer Learning
 
-**A Physics-Informed, Probabilistic Deep Learning System for Hydrological Forecasting**
+Deep learning streamflow forecasting for **Lamar River** (Yellowstone NP) and **Hoh River** (Olympic NP), using NeuralHydrology with CAMELS pre-training and single-basin fine-tuning.
 
-## 1. Overview
+## Current Approach
 
-This project implements a sophisticated **Sequence-to-Sequence (Seq2Seq) Encoder-Decoder** network for forecasting 7-day streamflow on the Lamar River (Yellowstone National Park) and Hoh River (Olympic National Park).
+**Transfer learning** following Kratzert et al. (2021):
+1. Pre-train a CudaLSTM on 531 CAMELS US basins (Daymet forcing)
+2. Fine-tune on target watershed with local GridMET climate data
 
-Moving beyond naive deep learning baselines, the final system integrates **SNOTEL snowpack data**, **GridMET climate forcing**, and **Quantile Regression** to provide robust, risk-aware forecasts. It addresses the "Storage Problem" in hydrology by explicitly modeling snow water equivalent (SWE) and melt potential.
+| Watershed | NSE | KGE | Architecture |
+|-----------|-----|-----|-------------|
+| Lamar River | 0.89 | 0.94 | CudaLSTM (hidden=256) |
+| Hoh River | 0.72 | 0.81 | CudaLSTM (hidden=256) |
 
-### Key Capabilities
-*   **Probabilistic Forecasting:** Outputs 10th, 50th, and 90th percentiles (P10, P50, P90) to quantify uncertainty.
-*   **Physics-Informed:** Incorporates hydrological principles like rain-on-snow events and elevation-banded climate forcing.
-*   **Flood Risk Detection:** The P90 upper bound successfully captures extreme flood risks that median forecasts often miss.
-*   **Calibration:** Achieves ~78% coverage for an 80% confidence interval.
-
-## 2. Model Architecture (Stage 6)
-
-The current state-of-the-art model in this repository represents "Stage 6" of development:
-
-*   **Encoder:** A 2-layer LSTM that processes a 60-day lookback window.
-    *   *Inputs:* Log-scaled Streamflow, SNOTEL SWE, Precipitation, Temperature, and Physics Features (e.g., Melt Potential).
-*   **Decoder:** An Autoregressive LSTM forecasting a 7-day horizon.
-    *   *Mechanism:* Uses its own P50 prediction to step forward in time (recurrent feedback).
-*   **Loss Function:** Pinball Loss (Quantile Loss) for asymmetric penalty optimization.
-*   **Training Strategy:** 3-Phase Robust Training (Teacher Forcing decay $\rightarrow$ Noise Injection) to prevent exposure bias and autoregressive explosion.
-
-## 3. Performance
-
-| Metric | Value | Description |
-| :--- | :--- | :--- |
-| **NSE (Median)** | ~0.94 | Nash-Sutcliffe Efficiency (Excellent) |
-| **Coverage** | 78.2% | Percentage of observations falling between P10 and P90 (Target >75%) |
-| **Peak Capture** | High | P90 captures ~87% of extreme peaks |
-
-## 4. Setup & Installation
-
-### Prerequisites
-*   Python 3.13 (Primary) or 3.12 (Legacy)
-*   NVIDIA GPU (Recommended for training) with CUDA support
-
-### Environment
-The project manages dependencies via `venv` and `pip`.
+## Quick Start
 
 ```bash
-# Create and activate virtual environment
+# 1. Setup environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
+
+# 2. Download data (see Data Acquisition below)
+
+# 3. Fine-tune Lamar model
+cd transfer_learningv2
+nh-run finetune --config-file config/lamar_finetune_3var.yml
+
+# 4. Evaluate
+nh-run evaluate --run-dir runs/<run_name> --epoch 30 --period test
+
+# 5. Dashboard
+streamlit run dashboard.py
 ```
 
-### Key Dependencies
-*   `torch` (Deep Learning)
-*   `pandas`, `numpy` (Data Manipulation)
-*   `matplotlib`, `seaborn` (Visualization)
-*   `jupyterlab` (Interactive Development)
+## Project Structure
 
-## 5. Usage
+```
+.
+├── transfer_learningv2/          # Main model code
+│   ├── config/                   # Training configs (YAML)
+│   │   ├── lamar_finetune_3var.yml    # Lamar fine-tuning
+│   │   ├── hoh_finetune_3var.yml      # Hoh fine-tuning
+│   │   ├── lamar_scratch_3var.yml     # Lamar from-scratch baseline
+│   │   ├── hoh_scratch_3var.yml       # Hoh from-scratch baseline
+│   │   └── camels_pretrain_531.yml    # CAMELS pre-training
+│   ├── src/                      # Data prep pipeline (01-04)
+│   ├── scripts/                  # Base model conversion
+│   ├── tests/                    # Pipeline validation tests
+│   ├── base_model_modified/      # Pre-trained CAMELS checkpoint
+│   ├── dashboard.py              # Streamlit evaluation dashboard
+│   ├── data/                     # NH-formatted NetCDF + attributes
+│   └── runs/                     # Training run outputs
+├── transfer_learning/            # V1 approach (kept for reference)
+├── src/                          # Data acquisition & water balance
+│   ├── download_*.py             # USGS, GridMET, SNOTEL downloaders
+│   ├── water_balance.py          # Physics-based hydrological model
+│   └── validate_*.py             # Validation scripts
+├── data/                         # Raw data (streamflow, climate, SNOTEL)
+├── runs/                         # CAMELS pre-training run
+│   └── camels_pretrain_531_.../  # Base model source
+├── archive/                      # Historical notebooks, models, docs
+└── TRANSFER_LEARNING_GUIDE.md    # Scientific background
+```
 
-### Data Acquisition
-The project includes scripts to fetch live USGS streamflow and SNOTEL data.
+## Reproducing the Model
+
+### Prerequisites
+- Python 3.13 with `pip install -r requirements.txt`
+- NVIDIA GPU with CUDA (tested on GTX 1070)
+- NeuralHydrology (`nh-run` CLI)
+
+### Step 1: Download Raw Data
 
 ```bash
-# Download Lamar River Streamflow
-python src/download_lamar_river_data.py
+source .venv/bin/activate
 
-# Download SNOTEL Snowpack Data
+# Streamflow (USGS)
+python src/download_lamar_river_data.py
+python src/download_hoh_river_data.py
+
+# Climate (GridMET elevation bands)
+python src/download_gridmet_generalized.py
+
+# SNOTEL snowpack
 python src/download_snotel.py
 ```
 
-### Running Experiments (Notebooks)
-The core model development is documented in progressive Jupyter notebooks located in `notebooks/`.
+### Step 2: Prepare NeuralHydrology Data
 
-*   **Stage 6 (Final Model):** `notebooks/lamar_river_stage6_probabilistic_daily.ipynb`
-*   **Hoh River Analysis:** `notebooks/hoh_river_stage6_35years.ipynb`
+Run the numbered pipeline scripts from `transfer_learningv2/`:
 
-To launch:
 ```bash
-jupyter lab
+cd transfer_learningv2
+
+# Lump elevation bands to basin-mean climate
+python src/01_prep_climate_lumped.py
+
+# Convert streamflow CFS → mm/day
+python src/02_convert_streamflow.py
+
+# Merge climate + streamflow into NetCDF
+python src/03_merge_to_netcdf.py
+
+# Calculate static basin attributes
+python src/04_calculate_attributes.py
 ```
 
-### Project Structure
+### Step 3: Download CAMELS Dataset (for pre-training only)
 
-```text
-.
-├── data/                   # Raw and processed datasets (Streamflow, Climate, SNOTEL)
-├── notebooks/              # Jupyter notebooks for Stages 1-6
-├── src/                    # Source code for data fetching and modeling
-│   ├── water_balance.py    # Physics-based hydrological model
-│   ├── download_*.py       # Data acquisition scripts
-│   └── ...
-├── output/                 # Model artifacts, plots, and logs
-└── ...
+The pre-trained base model is included in `transfer_learningv2/base_model_modified/`.
+To re-train from scratch on CAMELS:
+
+```bash
+# Download CAMELS US dataset (~6GB)
+# See: https://gdex.ucar.edu/dataset/camels/
+# Place in transfer_learning/data/CAMELS_US/
+
+# Pre-train
+cd transfer_learningv2
+nh-run train --config-file config/camels_pretrain_531.yml
+
+# Convert base model for fine-tuning (renames CAMELS variable names to NetCDF-compatible)
+python scripts/create_modified_base_model.py \
+    --base-run-dir ../runs/<camels_run_name> \
+    --output-dir base_model_modified
 ```
 
-## 6. Development History
+### Step 4: Fine-tune
 
-The project evolved through distinct stages to solve specific hydrological modeling challenges:
+```bash
+cd transfer_learningv2
 
-*   **Stage 1 (Naive LSTM):** Baseline model. Failed to capture seasonal snowmelt.
-*   **Stage 2 (Climate Forcing):** Added Precip/Temp. Improved seasonality but missed "Rain-on-Snow" events.
-*   **Stage 3 (SNOTEL Integration):** Added Snow Water Equivalent (SWE). Massive accuracy jump (NSE ~0.94).
-*   **Stage 4 (Seq2Seq):** Moved to Encoder-Decoder. Suffered from "exposure bias" (hallucinated floods).
-*   **Stage 5 (Robustness):** Fixed stability issues with noise injection and scheduled sampling.
-*   **Stage 6 (Probabilistic):** Final Quantile Regression model. Adds uncertainty bounds for risk management.
+# Lamar River
+nh-run finetune --config-file config/lamar_finetune_3var.yml
 
-## 7. Documentation
+# Hoh River
+nh-run finetune --config-file config/hoh_finetune_3var.yml
+```
 
-For detailed developer guidelines, coding standards, and specific command references, please see:
-*   `PROJECT_SUMMARY.md`: In-depth narrative of the model's evolution.
+Training runs are saved to `transfer_learningv2/runs/<experiment_name_DDMM_HHMMSS>/`.
+
+### Step 5: Evaluate
+
+```bash
+# Evaluate on test period (Oct 2020 - Dec 2024)
+nh-run evaluate --run-dir runs/<run_name> --epoch 30 --period test
+
+# Interactive dashboard
+streamlit run dashboard.py
+```
+
+### Step 6: Run Tests
+
+```bash
+cd transfer_learningv2
+python -m pytest tests/ -v
+```
+
+## Model Details
+
+**Architecture:** CudaLSTM (Kratzert et al. 2021)
+- Hidden size: 256
+- Output dropout: 0.4
+- Sequence length: 365 days
+- Output activation: linear
+
+**Inputs (3 dynamic variables):**
+- `prcp_mm_day` — daily precipitation (mm)
+- `tmax_C` — daily max temperature (°C)
+- `tmin_C` — daily min temperature (°C)
+
+**Static attributes (7):**
+- `elev_mean`, `slope_mean`, `area_gages2`, `frac_forest`
+- `soil_depth_pelletier`, `sand_frac`, `clay_frac`
+
+**Fine-tuning:**
+- Loss: MSE (smoother gradients than NSE for single-basin)
+- Learning rate: 1e-4
+- Epochs: 30
+- Fine-tuned modules: LSTM + head
+
+**Date splits:**
+- Train: Oct 1991 – Sep 2015
+- Validation: Oct 2015 – Sep 2020
+- Test: Oct 2020 – Dec 2024
+
+## Watersheds
+
+- **Lamar River** — Snowmelt-dominated, high persistence (lag-1 autocorrelation = 0.986). SNOTEL SWE is critical.
+- **Hoh River** — Rain-dominated, rapid storm response (lag-1 autocorrelation = 0.746). Harder to predict peaks.
+
+## Historical Development
+
+The project evolved through stages 1-6 using custom PyTorch LSTMs (see `archive/notebooks/`). The current NeuralHydrology transfer learning approach supersedes those experiments. See `TRANSFER_LEARNING_GUIDE.md` for scientific background.

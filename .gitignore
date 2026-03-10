@@ -1,0 +1,43 @@
+# Data (large, downloaded via scripts)
+data/
+transfer_learning/data/
+transfer_learningv2/data/
+
+# Model checkpoints and run artifacts
+runs/
+transfer_learningv2/runs/
+transfer_learningv2/base_model_modified/model_epoch030.pt
+*.pth
+*.pt
+*.pkl
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Environment
+.venv/
+.venv-3.12/
+.envrc
+
+# IDE / OS
+.Rhistory
+.Rprofile
+*.swp
+*~
+\#*\#
+
+# Archive (kept locally, not in git)
+archive/
+
+# Output artifacts
+output/
+transfer_learningv2/output/
+darts_logs/
+cache/
+
+# Misc
+*.sqlite
+*.sync-conflict-*
+.~lock.*

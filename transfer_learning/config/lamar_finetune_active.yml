@@ -1,0 +1,70 @@
+# Fine-Tuning Config for Lamar River
+# Base Model: runs/camels_pretrain_clean_tl_2312_232448 (5 variables)
+
+experiment_name: lamar_finetune_clean_tl_v2
+device: cuda:0
+
+# Base Model (The Pre-trained Weights)
+base_run_dir: /home/steve/sync/streamflow/runs/camels_pretrain_clean_tl_2312_232448
+
+# Paths
+data_dir: transfer_learning/data/neuralhydrology
+train_basin_file: transfer_learning/data/basins.txt
+validation_basin_file: transfer_learning/data/basins.txt
+test_basin_file: transfer_learning/data/basins.txt
+
+# Model Architecture (Must match Base Model)
+model: cudalstm
+head: regression
+output_activation: linear
+hidden_size: 256
+initial_forget_bias: 3
+output_dropout: 0.4
+
+# Fine-Tuning Settings
+optimizer: Adam
+loss: NSE
+learning_rate: 0.0001 
+batch_size: 256
+epochs: 20
+finetune_modules:
+  - lstm
+  - head
+metrics:
+  - NSE
+  - KGE
+  - RMSE
+
+# Data
+dataset: generic
+predict_last_n: 1
+forcings: []
+seq_length: 365
+
+# Date ranges
+train_start_date: '01/10/2000'
+train_end_date: '30/09/2015'
+validation_start_date: '01/10/2015'
+validation_end_date: '30/09/2020'
+test_start_date: '01/10/2020'
+test_end_date: '30/09/2024'
+
+target_variables:
+  - QObs(mm/d)
+
+# Inputs must match the 5 variables used in pre-training
+dynamic_inputs:
+  - prcp(mm/day)
+  - tmax(C)
+  - tmin(C)
+  - srad(W/m2)
+  - vp(Pa)
+
+static_attributes:
+  - elev_mean
+  - slope_mean
+  - area_gages2
+  - frac_forest
+  - soil_depth_pelletier
+  - sand_frac
+  - clay_frac

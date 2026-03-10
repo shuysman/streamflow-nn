@@ -1,0 +1,75 @@
+# General Configuration
+experiment_name: camels_pretrain_531_appendix_a
+device: cuda:0
+seed: 42
+
+# Data Configuration
+dataset: camels_us
+data_dir: transfer_learning/data/CAMELS_US
+train_basin_file: transfer_learning/data/camels_531_train.txt
+validation_basin_file: transfer_learning/data/camels_531_val.txt
+test_basin_file: transfer_learning/data/camels_531_val.txt
+
+# Time Periods (Exactly from Appendix A)
+# Training (1 October 1999 through 30 September 2008)
+train_start_date: 01/10/1999
+train_end_date: 30/09/2008
+# Validation (1 October 1980 through 30 September 1989)
+validation_start_date: 01/10/1980
+validation_end_date: 30/09/1989
+# Testing (1 October 1989 through 30 September 1999)
+test_start_date: 01/10/1989
+test_end_date: 30/09/1999
+
+# Model Configuration
+model: cudalstm
+head: regression
+hidden_size: 256
+initial_forget_bias: 3
+output_dropout: 0.4
+output_activation: linear
+
+# Training Configuration
+optimizer: Adam
+# "adapted NSE loss; see Kratzert et al. (2019b)"
+loss: NSE
+batch_size: 256
+epochs: 30
+clip_gradient_norm: 1
+
+# Learning Rate Schedule (Exactly from Appendix A)
+# Initial 1e-3, reduced to 5e-4 at epoch 20 and 1e-4 at epoch 25
+learning_rate:
+  0: 0.001
+  20: 0.0005
+  25: 0.0001
+
+# Data Loader
+seq_length: 365
+predict_last_n: 1
+num_workers: 8
+
+# Input/Output Variables (Standard CAMELS US names in NeuralHydrology)
+forcings:
+  - daymet
+dynamic_inputs:
+  - prcp(mm/day)
+  - tmax(C)
+  - tmin(C)
+target_variables:
+  - QObs(mm/d)
+static_attributes:
+  - elev_mean
+  - slope_mean
+  - area_gages2
+  - frac_forest
+  - soil_depth_pelletier
+  - sand_frac
+  - clay_frac
+
+# Metrics
+metrics:
+  - NSE
+  - KGE
+  - RMSE
+  - Pearson-r

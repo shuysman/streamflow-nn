@@ -1,0 +1,70 @@
+experiment_name: lamar_finetune_3var
+device: cuda:0
+
+# Base Model (Pre-trained on CAMELS with same architecture)
+base_run_dir: base_model_modified/
+
+# Paths (relative to transfer_learningv2/)
+data_dir: data/neuralhydrology
+train_basin_file: data/basin_lists/lamar_basins.txt
+validation_basin_file: data/basin_lists/lamar_basins.txt
+test_basin_file: data/basin_lists/lamar_basins.txt
+
+# Model Architecture (MUST MATCH BASE MODEL - Kratzert et al. 2021)
+model: cudalstm
+head: regression
+output_activation: linear
+hidden_size: 256
+initial_forget_bias: 3
+output_dropout: 0.4
+
+# Fine-Tuning Settings
+optimizer: Adam
+loss: MSE  # MSE works better for fine-tuning (smoother gradients)
+learning_rate: 1.0e-4  # Lower LR for fine-tuning (from epoch 25 of regional training)
+batch_size: 256
+epochs: 30  # Match successful previous run
+
+finetune_modules:
+  - lstm
+  - head
+
+metrics:
+  - NSE
+  - KGE
+  - RMSE
+  - Pearson-r
+
+# Data Configuration
+dataset: generic
+forcings: []  # Override base model's 'forcings: [daymet]' - we use explicit dynamic_inputs instead
+predict_last_n: 1
+seq_length: 365  # From Kratzert et al. 2021
+
+# Date Ranges (same as scratch for fair comparison)
+train_start_date: '01/10/1991'
+train_end_date: '30/09/2015'
+validation_start_date: '01/10/2015'
+validation_end_date: '30/09/2020'
+test_start_date: '01/10/2020'
+test_end_date: '31/12/2024'
+
+target_variables:
+  - QObs_mm_d
+
+dynamic_inputs:
+  - prcp_mm_day
+  - tmax_C
+  - tmin_C
+
+# Explicitly override to avoid inheriting non-existent variables
+evolving_attributes: []
+
+static_attributes:
+  - elev_mean
+  - slope_mean
+  - area_gages2
+  - frac_forest
+  - soil_depth_pelletier
+  - sand_frac
+  - clay_frac

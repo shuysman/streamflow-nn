@@ -1,0 +1,66 @@
+experiment_name: lamar_transfer_learning_3var
+device: cuda:0
+
+# Load pre-trained weights (transfer learning, NOT fine-tuning)
+checkpoint_path: base_model_modified/model_epoch030.pt
+
+# Paths (relative to transfer_learningv2/)
+data_dir: data/neuralhydrology
+train_basin_file: data/basin_lists/lamar_basins.txt
+validation_basin_file: data/basin_lists/lamar_basins.txt
+test_basin_file: data/basin_lists/lamar_basins.txt
+
+# Model Architecture (MUST MATCH PRE-TRAINED MODEL)
+model: cudalstm
+head: regression
+output_activation: linear
+hidden_size: 256
+initial_forget_bias: 3
+output_dropout: 0.4
+
+# Training Settings (use low LR for transfer learning)
+optimizer: Adam
+loss: MSE
+learning_rate: 1.0e-4  # Low LR for transfer learning
+batch_size: 256
+epochs: 30
+
+metrics:
+  - NSE
+  - KGE
+  - RMSE
+  - Pearson-r
+
+# Data Configuration
+dataset: generic
+forcings: []  # No forcings for generic dataset
+predict_last_n: 1
+seq_length: 365
+
+# Date Ranges
+train_start_date: '01/10/1991'
+train_end_date: '30/09/2015'
+validation_start_date: '01/10/2015'
+validation_end_date: '30/09/2020'
+test_start_date: '01/10/2020'
+test_end_date: '31/12/2024'
+
+target_variables:
+  - QObs_mm_d
+
+dynamic_inputs:
+  - prcp_mm_day
+  - tmax_C
+  - tmin_C
+
+# No autoregressive or evolving attributes
+evolving_attributes: []
+
+static_attributes:
+  - elev_mean
+  - slope_mean
+  - area_gages2
+  - frac_forest
+  - soil_depth_pelletier
+  - sand_frac
+  - clay_frac
