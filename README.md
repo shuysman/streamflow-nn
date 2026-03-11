@@ -192,4 +192,4 @@ python -m pytest tests/ -v
 
 ## Historical Development
 
-The project evolved through stages 1-6 using custom PyTorch LSTMs (see `archive/notebooks/`). The current NeuralHydrology transfer learning approach supersedes those experiments. See `TRANSFER_LEARNING_GUIDE.md` for scientific background.
+The project evolved through stages 1-6 using custom PyTorch LSTMs (see `archive/notebooks/`). The current NeuralHydrology transfer learning approach supersedes those experiments. See `transfer_learning/GUIDE.md` for scientific background.

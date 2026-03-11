@@ -4,7 +4,7 @@ device: cuda:0
 # Base Model (Pre-trained on CAMELS with same architecture)
 base_run_dir: base_model_modified/
 
-# Paths (relative to transfer_learningv2/)
+# Paths (relative to transfer_learning/)
 data_dir: data/neuralhydrology
 train_basin_file: data/basin_lists/hoh_basins.txt
 validation_basin_file: data/basin_lists/hoh_basins.txt
