@@ -1,0 +1,58 @@
+attribute_means:
+  area_gages2: 470.97538784067086
+  clay_frac: 20.321043296690927
+  elev_mean: 732.4808595387841
+  frac_forest: 0.6638392033542977
+  sand_frac: 36.096921480335894
+  slope_mean: 46.32745486373166
+  soil_depth_pelletier: 10.024825234686272
+attribute_stds:
+  area_gages2: 467.17534751228163
+  clay_frac: 9.165105929732494
+  elev_mean: 799.681007631078
+  frac_forest: 0.36033586006988705
+  sand_frac: 15.788090322226768
+  slope_mean: 47.156426621824316
+  soil_depth_pelletier: 15.91470643091646
+xarray_feature_center:
+  attrs: {}
+  coords: {}
+  data_vars:
+    QObs_mm_d:
+      attrs: {}
+      data: 1.5054986476898193
+      dims: []
+    prcp_mm_day:
+      attrs: {}
+      data: 3.3069682121276855
+      dims: []
+    tmax_C:
+      attrs: {}
+      data: 16.836538314819336
+      dims: []
+    tmin_C:
+      attrs: {}
+      data: 4.586852550506592
+      dims: []
+  dims: {}
+xarray_feature_scale:
+  attrs: {}
+  coords: {}
+  data_vars:
+    QObs_mm_d:
+      attrs: {}
+      data: 3.6469223499298096
+      dims: []
+    prcp_mm_day:
+      attrs: {}
+      data: 7.950008392333984
+      dims: []
+    tmax_C:
+      attrs: {}
+      data: 10.93738079071045
+      dims: []
+    tmin_C:
+      attrs: {}
+      data: 9.973931312561035
+      dims: []
+  dims: {}

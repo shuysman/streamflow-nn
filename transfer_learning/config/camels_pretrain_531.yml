@@ -5,10 +5,10 @@ seed: 42
 
 # Data Configuration
 dataset: camels_us
-data_dir: transfer_learning/data/CAMELS_US
-train_basin_file: transfer_learning/data/camels_531_train.txt
-validation_basin_file: transfer_learning/data/camels_531_val.txt
-test_basin_file: transfer_learning/data/camels_531_val.txt
+data_dir: data/CAMELS_US
+train_basin_file: data/camels_531_train.txt
+validation_basin_file: data/camels_531_val.txt
+test_basin_file: data/camels_531_val.txt
 
 # Time Periods (Exactly from Appendix A)
 # Training (1 October 1999 through 30 September 2008)

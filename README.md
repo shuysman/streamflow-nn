@@ -24,7 +24,7 @@ pip install -r requirements.txt
 # 2. Download data (see Data Acquisition below)
 
 # 3. Fine-tune Lamar model
-cd transfer_learningv2
+cd transfer_learning
 nh-run finetune --config-file config/lamar_finetune_3var.yml
 
 # 4. Evaluate
@@ -38,7 +38,7 @@ streamlit run dashboard.py
 
 ```
 .
-├── transfer_learningv2/          # Main model code
+├── transfer_learning/            # Main model code
 │   ├── config/                   # Training configs (YAML)
 │   │   ├── lamar_finetune_3var.yml    # Lamar fine-tuning
 │   │   ├── hoh_finetune_3var.yml      # Hoh fine-tuning
@@ -52,7 +52,6 @@ streamlit run dashboard.py
 │   ├── dashboard.py              # Streamlit evaluation dashboard
 │   ├── data/                     # NH-formatted NetCDF + attributes
 │   └── runs/                     # Training run outputs
-├── transfer_learning/            # V1 approach (kept for reference)
 ├── src/                          # Data acquisition & water balance
 │   ├── download_*.py             # USGS, GridMET, SNOTEL downloaders
 │   ├── water_balance.py          # Physics-based hydrological model
@@ -89,10 +88,10 @@ python src/download_snotel.py
 
 ### Step 2: Prepare NeuralHydrology Data
 
-Run the numbered pipeline scripts from `transfer_learningv2/`:
+Run the numbered pipeline scripts from `transfer_learning/`:
 
 ```bash
-cd transfer_learningv2
+cd transfer_learning
 
 # Lump elevation bands to basin-mean climate
 python src/01_prep_climate_lumped.py
@@ -109,16 +108,16 @@ python src/04_calculate_attributes.py
 
 ### Step 3: Download CAMELS Dataset (for pre-training only)
 
-The pre-trained base model is included in `transfer_learningv2/base_model_modified/`.
+The pre-trained base model is included in `transfer_learning/base_model_modified/`.
 To re-train from scratch on CAMELS:
 
 ```bash
 # Download CAMELS US dataset (~6GB)
 # See: https://gdex.ucar.edu/dataset/camels/
-# Place in transfer_learning/data/CAMELS_US/
+# See camels_pretrain_531.yml for expected data_dir location
 
 # Pre-train
-cd transfer_learningv2
+cd transfer_learning
 nh-run train --config-file config/camels_pretrain_531.yml
 
 # Convert base model for fine-tuning (renames CAMELS variable names to NetCDF-compatible)
@@ -130,7 +129,7 @@ python scripts/create_modified_base_model.py \
 ### Step 4: Fine-tune
 
 ```bash
-cd transfer_learningv2
+cd transfer_learning
 
 # Lamar River
 nh-run finetune --config-file config/lamar_finetune_3var.yml
@@ -139,7 +138,7 @@ nh-run finetune --config-file config/lamar_finetune_3var.yml
 nh-run finetune --config-file config/hoh_finetune_3var.yml
 ```
 
-Training runs are saved to `transfer_learningv2/runs/<experiment_name_DDMM_HHMMSS>/`.
+Training runs are saved to `transfer_learning/runs/<experiment_name_DDMM_HHMMSS>/`.
 
 ### Step 5: Evaluate
 
@@ -154,7 +153,7 @@ streamlit run dashboard.py
 ### Step 6: Run Tests
 
 ```bash
-cd transfer_learningv2
+cd transfer_learning
 python -m pytest tests/ -v
 ```
 

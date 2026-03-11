@@ -1,12 +1,11 @@
 # Data (large, downloaded via scripts)
 data/
 transfer_learning/data/
-transfer_learningv2/data/
 
 # Model checkpoints and run artifacts
 runs/
-transfer_learningv2/runs/
-transfer_learningv2/base_model_modified/model_epoch030.pt
+transfer_learning/runs/
+transfer_learning/base_model_modified/model_epoch030.pt
 *.pth
 *.pt
 *.pkl
@@ -33,7 +32,7 @@ archive/
 
 # Output artifacts
 output/
-transfer_learningv2/output/
+transfer_learning/output/
 darts_logs/
 cache/
 
