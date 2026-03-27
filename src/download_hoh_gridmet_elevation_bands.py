@@ -65,7 +65,7 @@ def load_watershed():
           f"lat [{gdf.total_bounds[1]:.4f}, {gdf.total_bounds[3]:.4f}]")
     return gdf
 
-def download_gridmet_opendap(start_date='1990-01-01', end_date='2025-01-01'):
+def download_gridmet_opendap(start_date='1990-01-01', end_date='2025-12-31'):
     """
     Download gridMET data via OPeNDAP for Hoh River watershed.
     """
@@ -292,7 +292,7 @@ def main():
     print("="*80)
 
     # Download gridMET data (full historical record)
-    ds = download_gridmet_opendap(start_date='1990-01-01', end_date='2025-01-01')
+    ds = download_gridmet_opendap(start_date='1990-01-01', end_date='2025-12-31')
 
     if ds is None:
         print("\n✗ Failed to download gridMET data")

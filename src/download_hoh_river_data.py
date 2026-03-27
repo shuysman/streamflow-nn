@@ -45,7 +45,7 @@ try:
         sites=SITE_CODE,
         parameterCd=PARAMETER_CODE,
         start='1900-01-01',  # Get all available data
-        end=datetime.now().strftime('%Y-%m-%d')
+        end='2026-01-02'
     )
 
     print(f"✓ Successfully downloaded {len(df)} days of data")

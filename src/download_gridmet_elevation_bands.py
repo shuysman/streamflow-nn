@@ -573,7 +573,7 @@ def main():
 
     # Configuration
     start_date = '1990-01-01'
-    end_date = '2025-01-01'
+    end_date = '2025-12-31'
     output_file = '../data/climate/lamar_gridmet_elevation_bands.csv'
 
     # Create output directory
