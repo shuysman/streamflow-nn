@@ -45,25 +45,27 @@ def merge_to_netcdf(climate_file, streamflow_file, output_file):
     print(f"  Streamflow records: {len(streamflow)}")
     print(f"  Date range: {streamflow['date'].min()} to {streamflow['date'].max()}")
 
-    # Inner join on date to get overlapping period
+    # Left join on climate (complete daily series) — streamflow will be NaN where missing
     print(f"\n=== Merging on Date ===")
-    merged = climate.merge(streamflow, on='date', how='inner')
+    merged = climate.merge(streamflow, on='date', how='left')
     print(f"  Merged records: {len(merged)}")
     print(f"  Date range: {merged['date'].min()} to {merged['date'].max()}")
 
-    # Check for missing values before creating xarray
+    # Check for missing values
     print(f"\n=== Pre-merge Validation ===")
     missing = merged.isnull().sum()
     print(f"Missing values:")
     print(missing)
 
-    if missing.sum() > 0:
-        print("\n⚠️  Warning: Removing rows with missing values")
-        merged = merged.dropna()
-        print(f"  Records after dropping NaNs: {len(merged)}")
+    if missing['QObs_mm_d'] > 0:
+        print(f"\n  Note: {int(missing['QObs_mm_d'])} days with missing streamflow (kept as NaN)")
+        print(f"  NeuralHydrology will skip NaN targets in loss calculation")
+
+    # Climate forcings should be complete
+    climate_missing = missing.drop('QObs_mm_d').sum()
+    assert climate_missing == 0, f"Missing climate forcing values: {missing}"
 
     assert len(merged) > 0, "No overlapping data between climate and streamflow!"
-    assert merged.isnull().sum().sum() == 0, "Missing values remain after merge!"
 
     # Create xarray Dataset
     print(f"\n=== Creating xarray Dataset ===")
@@ -110,8 +112,13 @@ def merge_to_netcdf(climate_file, streamflow_file, output_file):
     for var, count in nan_counts.items():
         print(f"  {var}: {count}")
 
-    assert all(count == 0 for count in nan_counts.values()), "NaN values in dataset!"
-    print("✅ No NaN values")
+    # Climate forcings must be complete; streamflow NaNs are OK (skipped in loss)
+    for var in ['prcp_mm_day', 'tmax_C', 'tmin_C']:
+        assert nan_counts[var] == 0, f"NaN values in climate forcing {var}!"
+    if nan_counts['QObs_mm_d'] > 0:
+        print(f"  ({nan_counts['QObs_mm_d']} streamflow NaNs — OK, skipped in training loss)")
+    else:
+        print("✅ No NaN values")
 
     # Check data types
     print(f"\nData types:")
