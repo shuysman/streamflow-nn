@@ -57,6 +57,9 @@ dynamic_inputs:
   - tmax_C
   - tmin_C
 
+# Explicitly override to avoid inheriting non-existent variables
+evolving_attributes: []
+
 static_attributes:
   - elev_mean
   - slope_mean
