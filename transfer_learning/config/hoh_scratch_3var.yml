@@ -54,11 +54,4 @@ dynamic_inputs:
   - tmax_C
   - tmin_C
 
-static_attributes:
-  - elev_mean
-  - slope_mean
-  - area_gages2
-  - frac_forest
-  - soil_depth_pelletier
-  - sand_frac
-  - clay_frac
+# Static attributes omitted: single-basin training has zero variance for statics
